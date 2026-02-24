@@ -1,0 +1,1228 @@
+Public Sub Main()
+    Dim wb As Workbook
+    Dim revenueChartTop As Double
+    Dim inputFile As Variant
+    Dim outputFile As String
+    Dim dtStamp As String
+    Dim desktopPath As String
+    Dim baseName As String
+    
+    '==============================
+    '--- Mac/Win-safe file picker ---
+    '==============================
+    inputFile = Application.GetOpenFilename
+    If inputFile = False Then Exit Sub
+    
+    '==============================
+    '--- Open workbook ---
+    '==============================
+    Set wb = Workbooks.Open(FileName:=inputFile)
+    
+    '==============================
+    '--- Rename first sheet ---
+    '==============================
+    wb.Sheets(1).Name = "Data"
+    
+    '==============================
+    '--- Import & format Data Dictionary ---
+    '==============================
+    Call ImportDataDictionary(wb)
+    Call FormatDataDictionary(wb)
+    
+    '==============================
+    '--- Cleanup & format Data sheet ---
+    '==============================
+    Call runCleanup(wb)
+    Call FormatDataSheet(wb)
+    
+    '==============================
+    '--- Create Pivot Table Playground ---
+    '==============================
+    Call CreatePlaygroundPivot(wb)
+    
+    '==============================
+    '--- Create charts ---
+    '==============================
+    revenueChartTop = runRevenueByCamp(wb)
+    
+    Call SummarizeCampByAgeCounts(wb)
+    Call SummarizeBackgroundByCamp(wb)
+    Call SummarizeCampsAttendedBefore(wb)
+    
+    '==============================
+    '--- Order sheets ---
+    '==============================
+    Call OrderSheets(wb)
+    
+    '==============================
+    '--- Dashboard header + hyperlink ---
+    '==============================
+    Call AddDashboardHeader(wb)
+    
+    '==============================
+    '--- Timestamp & desktop path ---
+    '==============================
+    dtStamp = Format(Now, "yyyy-mm-dd_hhmm")
+    
+    ' Mac-safe desktop path
+    On Error Resume Next
+    desktopPath = MacScript("return POSIX path of (path to downloads folder)")
+    If desktopPath <> "" Then
+        If Right(desktopPath, 1) <> "/" Then desktopPath = desktopPath & "/"
+    Else
+        ' Windows fallback
+        desktopPath = Environ("USERPROFILE") & "\Desktop\"
+    End If
+    On Error GoTo 0
+    
+    '==============================
+    '--- Build safe output filename ---
+    '==============================
+    baseName = "Trybal Gatherings - Data and Systems Registration - Formatted"
+    
+    ' Replace illegal characters
+    baseName = Replace(baseName, ":", "-")
+    baseName = Replace(baseName, "\", "-")
+    baseName = Replace(baseName, "/", "-")
+    baseName = Replace(baseName, "?", "")
+    baseName = Replace(baseName, "*", "")
+    baseName = Replace(baseName, """", "")
+    baseName = Replace(baseName, "<", "")
+    baseName = Replace(baseName, ">", "")
+    baseName = Replace(baseName, "|", "")
+    
+    outputFile = desktopPath & baseName & " - Created " & dtStamp & ".xlsx"
+    
+    '==============================
+    '--- Delete existing file if needed ---
+    '==============================
+    If Dir(outputFile) <> "" Then
+        On Error Resume Next
+        Kill outputFile
+        ' Small delay to ensure Mac releases the file lock (especially on cloud folders)
+        Dim t As Double
+        t = Timer
+        Do While Timer < t + 1
+            DoEvents
+        Loop
+        On Error GoTo 0
+    End If
+    
+    '==============================
+    '--- Save workbook safely (Mac-safe) ---
+    '==============================
+    On Error Resume Next
+    wb.SaveCopyAs outputFile
+    If Err.Number <> 0 Then
+        MsgBox "Error saving file:" & vbCrLf & Err.Description, vbCritical
+        Exit Sub
+    End If
+    On Error GoTo 0
+    
+    Call CreateFilesByCamp(outputFile, desktopPath, dtStamp)
+    
+    MsgBox "Workbook saved as:" & vbCrLf & outputFile, vbInformation
+    
+    '==============================
+    '--- Close workbook ---
+    '==============================
+    wb.Close SaveChanges:=False
+End Sub
+
+'====================================================
+' DATA CLEANUP (Mac-safe)
+'====================================================
+Public Sub runCleanup(wb As Workbook)
+    Dim ws As Worksheet
+    Dim lastRow As Long, i As Long
+    
+    Set ws = wb.Sheets("Data")
+    Application.ScreenUpdating = False
+    
+    '--- NEW: Unmerge everything first ---
+    On Error Resume Next
+    ws.Cells.UnMerge
+    On Error GoTo 0
+    
+    '--- 1. Remove fully blank rows ---
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        If Application.WorksheetFunction.CountA(ws.Rows(i)) = 0 Then
+            ws.Rows(i).Delete
+        End If
+    Next i
+    
+    '--- 2. Remove duplicate header rows ---
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        If LCase(Trim(ws.Cells(i, 1).Value)) = "camp" _
+        And LCase(Trim(ws.Cells(i, 2).Value)) = "registration id" _
+        And Application.WorksheetFunction.CountA(ws.Rows(i)) > 10 Then
+            ws.Rows(i).Delete
+        End If
+    Next i
+    
+    Application.ScreenUpdating = True
+End Sub
+
+'====================================================
+' FORMAT DATA SHEET
+'====================================================
+Public Sub FormatDataSheet(wb As Workbook)
+    Dim ws As Worksheet
+    Dim lastRow As Long, lastCol As Long, c As Long
+    Dim rng As Range
+    Dim dataCell As Range
+    Dim col As Range
+    
+    Set ws = wb.Sheets("Data")
+    Application.ScreenUpdating = False
+    
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, lastCol))
+    
+    '--- Standard font ---
+    With rng
+        .Font.Name = "Calibri"
+        .Font.Size = 11
+    End With
+    
+    '--- Header styling ---
+    With ws.Range(ws.Cells(1, 1), ws.Cells(1, lastCol))
+        .Font.Bold = True
+        .Interior.Color = RGB(217, 217, 217)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    '--- Auto-fit columns & align numeric/text ---
+    ws.Columns.AutoFit
+    For c = 1 To lastCol
+        Set dataCell = ws.Cells(2, c)
+        If IsNumeric(dataCell.Value) And dataCell.Value <> "" Then
+            ws.Columns(c).HorizontalAlignment = xlRight
+        Else
+            ws.Columns(c).HorizontalAlignment = xlLeft
+        End If
+    Next c
+    
+    '--- Freeze header ---
+    With ws
+        .Activate
+        .Rows(2).Select
+    End With
+    ActiveWindow.FreezePanes = True
+    
+    '--- Add borders ---
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Weight = xlThin
+    End With
+    
+    '--- Format specific columns as currency ---
+    Dim colName As Variant
+    For Each colName In Array("Revenue", "Total Paid ($ Amount)", "Processing & Fees ($ Amount)")
+        On Error Resume Next
+        Set col = ws.Rows(1).Find(What:=colName, LookIn:=xlValues, LookAt:=xlWhole)
+        If Not col Is Nothing Then
+            ws.Range(ws.Cells(2, col.Column), ws.Cells(lastRow, col.Column)).NumberFormat = "$#,##0.00"
+        End If
+        On Error GoTo 0
+    Next colName
+    
+    Application.ScreenUpdating = True
+End Sub
+'====================================================
+' IMPORT DATA DICTIONARY
+'====================================================
+Public Sub ImportDataDictionary(wbDest As Workbook)
+    Dim wbSource As Workbook
+    Dim wsSource As Worksheet, wsDest As Worksheet
+    Dim dictFilePath As String
+    
+    dictFilePath = "/Users/hillelmorris/Library/CloudStorage/GoogleDrive-hillel.morris@gmail.com/My Drive/Career/Job Search/2025   2026/Trybal Testing/Trybal_Registration_Data_Dictionary.xlsx"
+    
+    If Len(Dir(dictFilePath)) = 0 Then
+        MsgBox "Data dictionary file not found:" & vbCrLf & dictFilePath, vbCritical
+        Exit Sub
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    Set wbSource = Workbooks.Open(dictFilePath)
+    Set wsSource = wbSource.Sheets(1)
+    
+    '--- Delete existing ---
+    On Error Resume Next
+    wbDest.Sheets("Data Dictionary").Delete
+    On Error GoTo 0
+    
+    Set wsDest = wbDest.Sheets.Add(After:=wbDest.Sheets(wbDest.Sheets.Count))
+    wsDest.Name = "Data Dictionary"
+    
+    wsSource.UsedRange.Copy
+    wsDest.Range("A1").PasteSpecial xlPasteValues
+    wsDest.Range("A1").PasteSpecial xlPasteFormats
+    Application.CutCopyMode = False
+    
+    wbSource.Close SaveChanges:=False
+    
+    wsDest.Columns.AutoFit
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+End Sub
+
+'====================================================
+' FORMAT DATA DICTIONARY
+'====================================================
+Public Sub FormatDataDictionary(wb As Workbook)
+    Dim ws As Worksheet, rng As Range, tbl As ListObject
+    Dim lastRow As Long, lastCol As Long, c As Long
+    
+    On Error Resume Next
+    Set ws = wb.Sheets("Data Dictionary")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Sub
+    
+    Application.ScreenUpdating = False
+    
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    If lastRow < 2 Then Exit Sub
+    
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, lastCol))
+    
+    '--- Standard font ---
+    With rng
+        .Font.Name = "Calibri"
+        .Font.Size = 11
+        .VerticalAlignment = xlCenter
+    End With
+    
+    '--- Header ---
+    With ws.Range(ws.Cells(1, 1), ws.Cells(1, lastCol))
+        .Font.Bold = True
+        .Interior.Color = RGB(217, 217, 217)
+        .HorizontalAlignment = xlCenter
+        .WrapText = True
+        .RowHeight = 24
+    End With
+    
+    '--- Remove old table ---
+    On Error Resume Next
+    ws.ListObjects(1).Unlist
+    On Error GoTo 0
+    
+    '--- Create table ---
+    Set tbl = ws.ListObjects.Add(xlSrcRange, rng, , xlYes)
+    tbl.Name = "tblDataDictionary"
+    tbl.TableStyle = "TableStyleMedium9"
+    
+    '--- Wrap long text ---
+    For c = 1 To lastCol
+        ws.Columns(c).WrapText = False
+        If ws.Cells(2, c).Value Like "* *" Then ws.Columns(c).WrapText = True
+    Next c
+    
+    ws.Columns.AutoFit
+    For c = 1 To lastCol
+        If ws.Columns(c).ColumnWidth > 45 Then
+            ws.Columns(c).ColumnWidth = 45
+            ws.Columns(c).WrapText = True
+        End If
+    Next c
+    
+    '--- Freeze header & borders ---
+    ws.Rows(2).Select
+    ActiveWindow.FreezePanes = True
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Weight = xlThin
+    End With
+    
+    Application.ScreenUpdating = True
+End Sub
+
+'====================================================
+' CREATE PLAYGROUND PIVOT TABLE
+'====================================================
+Public Sub CreatePlaygroundPivot(wb As Workbook)
+    Dim wsData As Worksheet, wsPlay As Worksheet
+    Dim pc As PivotCache, pt As PivotTable
+    Dim lastRow As Long, lastCol As Long, dataRange As Range
+    Dim shp As Shape
+    
+    Set wsData = wb.Sheets("Data")
+    
+    lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsData.Cells(1, wsData.Columns.Count).End(xlToLeft).Column
+    Set dataRange = wsData.Range(wsData.Cells(1, 1), wsData.Cells(lastRow, lastCol))
+    
+    On Error Resume Next
+    wb.Sheets("Playground").Delete
+    On Error GoTo 0
+    
+    Set wsPlay = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+    wsPlay.Name = "Playground"
+    
+    Set pc = wb.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=dataRange)
+    Set pt = pc.CreatePivotTable(TableDestination:=wsPlay.Range("A3"), TableName:="PlaygroundPivot")
+    
+    '--- Title ---
+    wsPlay.Range("A1").Value = "Playground Pivot – Drag fields to analyze data"
+    wsPlay.Range("A1").Font.Bold = True
+    wsPlay.Range("A1").Font.Size = 14
+    
+    '--- Starter layout ---
+    On Error Resume Next
+    pt.PivotFields("Camp").Orientation = xlRowField
+    With pt.PivotFields("Registration ID")
+        .Orientation = xlDataField
+        .Function = xlCount
+        .Name = "Count of Registrations"
+    End With
+    On Error GoTo 0
+    
+    wsPlay.Columns.AutoFit
+    
+    '--- Instruction box ---
+    On Error Resume Next
+    wsPlay.Shapes("PivotHelpBox").Delete
+    On Error GoTo 0
+    
+    Set shp = wsPlay.Shapes.AddTextbox(msoTextOrientationHorizontal, wsPlay.Range("E1").Left, wsPlay.Range("E1").Top, 320, 60)
+    With shp
+        .Name = "PivotHelpBox"
+        .TextFrame.Characters.Text = "Tip: Right-click inside the PivotTable and select 'Show Field List' to add or change fields."
+        .TextFrame.Characters.Font.Size = 14
+        .TextFrame.Characters.Font.Bold = True
+        .Fill.ForeColor.RGB = RGB(255, 242, 204)
+        .Line.ForeColor.RGB = RGB(191, 144, 0)
+    End With
+End Sub
+
+Public Sub AddDashboardHeader(wb As Workbook)
+    Dim wsDash As Worksheet
+    Dim dtStamp As String
+    Dim warnStamp As String
+    Dim logoPath As String
+    Dim pic As Shape
+    Dim headerRange As Range
+    
+    On Error Resume Next
+    Set wsDash = wb.Sheets("Dashboards")
+    On Error GoTo 0
+    If wsDash Is Nothing Then Exit Sub
+    
+    Application.ScreenUpdating = False
+    
+    '-----------------------------
+    ' Merge header area A1:E6
+    '-----------------------------
+    Set headerRange = wsDash.Range("A1:E6")
+    headerRange.Merge
+    headerRange.HorizontalAlignment = xlLeft
+    headerRange.VerticalAlignment = xlCenter
+    headerRange.Font.Size = 18
+    headerRange.Font.Bold = True
+    headerRange.Font.Italic = True
+    headerRange.Value = "" ' clear previous content
+    
+    '-----------------------------
+    ' Remove any existing borders (Mac-safe)
+    '-----------------------------
+    headerRange.Borders.LineStyle = xlNone
+    
+    '-----------------------------
+    ' Insert Trybal logo (with hyperlink)
+    '-----------------------------
+    logoPath = "/Users/hillelmorris/Library/CloudStorage/GoogleDrive-hillel.morris@gmail.com/My Drive/Career/Job Search/2025   2026/Trybal Testing/Trybal_Gatherings_Logo.jpg"
+    
+    ' Remove old logo if exists
+    For Each pic In wsDash.Shapes
+        If pic.Name Like "TrybalLogo*" Then pic.Delete
+    Next pic
+    
+    If Dir(logoPath) <> "" Then
+        Set pic = wsDash.Shapes.AddPicture( _
+            FileName:=logoPath, _
+            LinkToFile:=msoFalse, _
+            SaveWithDocument:=msoTrue, _
+            Left:=wsDash.Cells(1, 1).Left + 6, _
+            Top:=wsDash.Cells(1, 1).Top + 2, _
+            Width:=-1, Height:=-1)
+        
+        pic.Name = "TrybalLogo_Main"
+        pic.LockAspectRatio = msoTrue
+        pic.Height = pic.Height * 1 ' triple the height
+        wsDash.Hyperlinks.Add Anchor:=pic, _
+            Address:="https://www.trybalgatherings.com/"
+    End If
+    
+    '-----------------------------
+    ' Dashboard timestamp next to logo
+    '-----------------------------
+    dtStamp = "Dashboard generated " & Format(Now, "mmmm d, yyyy")
+    With wsDash.Cells(2, 6)
+        .Value = dtStamp
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlCenter
+        .Font.Size = 18
+        .Font.Bold = True
+        .Font.Italic = False
+    End With
+    
+    '-----------------------------
+    '  Warning Meassage for Mac users
+    '-----------------------------
+    warnStamp = "Mac Users: You may need to right click on tables in order to see data after opening"
+    With wsDash.Cells(3, 6)
+        .Value = warnStamp
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlCenter
+        .Font.Size = 12
+        .Font.Bold = True
+        .Font.Italic = True
+        .Font.Color = RGB(255, 0, 0)  ' <-- red color
+    End With
+        
+    '==============================
+    '---Place spot where I want ti to be when workbook is openned ---
+    '==============================
+    wsDash.Activate
+    wsDash.Range("A1").Select
+    
+    '-----------------------------
+    ' Freeze panes below header
+    '-----------------------------
+    'ActiveWindow.FreezePanes = True
+    
+    Application.ScreenUpdating = True
+End Sub
+'====================================================
+' ORDER SHEETS LEFT ? RIGHT
+'====================================================
+Public Sub OrderSheets(wb As Workbook)
+    On Error Resume Next
+    wb.Sheets("Dashboards").Move Before:=wb.Sheets(1)
+    wb.Sheets("Summary tables").Move After:=wb.Sheets("Dashboards")
+    wb.Sheets("Playground").Move After:=wb.Sheets("Summary tables")
+    wb.Sheets("Data Dictionary").Move After:=wb.Sheets("Playground")
+    wb.Sheets("Data").Move After:=wb.Sheets("Data Dictionary")
+    On Error GoTo 0
+End Sub
+'====================================================
+' REVENUE BY CAMP + CHART
+'====================================================
+Public Function runRevenueByCamp(wb As Workbook) As Double
+    Dim ws As Worksheet, wsOut As Worksheet, wsDash As Worksheet
+    Dim lastRow As Long, i As Long, idx As Long
+    Dim key As String
+    Dim keys As Collection, keyIndex As Collection
+    Dim sums() As Double
+    Dim colGroup As Long, colRevenue As Long, colPaid As Long, colFees As Long
+    Dim tblRevenueByCamp As ListObject
+    Dim chartObj As ChartObject, chartRange As Range
+    Dim chartTop As Double
+    
+    Set ws = wb.Sheets("Data")
+    
+    '--- locate columns ---
+    colGroup = FindHeader(ws, "Camp")
+    colRevenue = FindHeader(ws, "Revenue")
+    colPaid = FindHeader(ws, "Total Paid ($ Amount)")
+    colFees = FindHeader(ws, "Processing & Fees ($ Amount)")
+    
+    If colGroup = 0 Or colRevenue = 0 Or colPaid = 0 Or colFees = 0 Then
+        MsgBox "One or more required columns not found.", vbCritical
+        Exit Function
+    End If
+    
+    lastRow = ws.Cells(ws.Rows.Count, colGroup).End(xlUp).Row
+    Set keys = New Collection
+    Set keyIndex = New Collection
+    ReDim sums(1 To lastRow, 1 To 3)
+    
+    '--- compute sums ---
+    For i = 2 To lastRow
+        key = Trim(ws.Cells(i, colGroup).Value)
+        If key = "" Or LCase(key) = "camp" Or LCase(key) = "group" Then GoTo NextRow
+        
+        On Error Resume Next
+        idx = keyIndex(key)
+        If Err.Number <> 0 Then
+            Err.Clear
+            keys.Add key
+            idx = keys.Count
+            keyIndex.Add idx, key
+        End If
+        On Error GoTo 0
+        
+        sums(idx, 1) = sums(idx, 1) + SafeToDouble(ws.Cells(i, colRevenue).Value)
+        sums(idx, 2) = sums(idx, 2) + SafeToDouble(ws.Cells(i, colPaid).Value)
+        sums(idx, 3) = sums(idx, 3) + SafeToDouble(ws.Cells(i, colFees).Value)
+NextRow:
+    Next i
+    
+    '--- recreate output sheets ---
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    wb.Sheets("Summary tables").Delete
+    wb.Sheets("Dashboards").Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    Set wsOut = wb.Sheets.Add
+    wsOut.Name = "Summary tables"
+    Set wsDash = wb.Sheets.Add
+    wsDash.Name = "Dashboards"
+    
+    '--- Add Revenue table ---
+    wsOut.Range("A1:D1").Merge
+    wsOut.Range("A1").Value = "Revenue by Camp"
+    wsOut.Range("A1").Font.Bold = True
+    wsOut.Range("A1").Font.Size = 14
+    wsOut.Range("A1").HorizontalAlignment = xlCenter
+    
+    wsOut.Range("A2:D2").Value = Array("Camp", "Revenue Sum", "Total Paid Sum", "Processing & Fees Sum")
+    
+    For i = 1 To keys.Count
+        wsOut.Cells(i + 2, 1).Value = keys(i)
+        wsOut.Cells(i + 2, 2).Value = sums(i, 1)
+        wsOut.Cells(i + 2, 3).Value = sums(i, 2)
+        wsOut.Cells(i + 2, 4).Value = sums(i, 3)
+    Next i
+    
+    Set tblRevenueByCamp = wsOut.ListObjects.Add(xlSrcRange, wsOut.Range("A2:D" & keys.Count + 2), , xlYes)
+    tblRevenueByCamp.Name = "tblRevenueByCamp"
+    tblRevenueByCamp.TableStyle = "TableStyleMedium9"
+    
+    wsOut.Range("B3:D" & keys.Count + 2).NumberFormat = "$#,##0.00"
+    wsOut.Columns.AutoFit
+    
+    '--- create Revenue chart ---
+    Set chartRange = tblRevenueByCamp.Range
+    Set chartObj = wsDash.ChartObjects.Add(Left:=50, Top:=80, Width:=tblRevenueByCamp.Range.Width, Height:=350)
+    With chartObj.Chart
+        .SetSourceData chartRange
+        .ChartType = xlColumnClustered
+        .HasTitle = True
+        .ChartTitle.Text = "Revenue by Camp"
+        .Axes(xlValue).TickLabels.NumberFormat = "$#,##0"
+    End With
+    
+    chartTop = chartObj.Top + chartObj.Height + 20
+    runRevenueByCamp = chartTop
+End Function
+'====================================================
+' CAMP BY AGE SUMMARY (COUNT OF CAMPERS) + LINE CHART
+'====================================================
+Public Sub SummarizeCampByAgeCounts(wb As Workbook)
+    Dim ws As Worksheet, wsOut As Worksheet, wsDash As Worksheet
+    Dim lastRow As Long, i As Long
+    Dim colCamp As Long, colAge As Long
+    Dim camp As String, age As Variant
+    Dim camps As Collection, ages As Collection
+    Dim counts() As Long
+    Dim startRow As Long, r As Long, c As Long
+    Dim tblCampByAge As ListObject
+    Dim chartObj As ChartObject, revChart As ChartObject, chartLoop As ChartObject
+    Dim chartLeft As Double, chartWidth As Double
+    
+    Set ws = wb.Sheets("Data")
+    
+    '--- Ensure output sheets exist ---
+    On Error Resume Next
+    Set wsOut = wb.Sheets("Summary tables")
+    If wsOut Is Nothing Then Set wsOut = wb.Sheets.Add: wsOut.Name = "Summary tables"
+    
+    Set wsDash = wb.Sheets("Dashboards")
+    If wsDash Is Nothing Then Set wsDash = wb.Sheets.Add: wsDash.Name = "Dashboards"
+    On Error GoTo 0
+    
+    '--- Find columns ---
+    colCamp = FindHeader(ws, "Camp")
+    colAge = FindHeader(ws, "Age")
+    If colCamp = 0 Or colAge = 0 Then Exit Sub
+    
+    lastRow = ws.Cells(ws.Rows.Count, colCamp).End(xlUp).Row
+    Set camps = New Collection
+    Set ages = New Collection
+    
+    '--- Collect unique camps and ages ---
+    For i = 2 To lastRow
+        camp = Trim(ws.Cells(i, colCamp).Value)
+        age = ws.Cells(i, colAge).Value
+        If camp <> "" And LCase(camp) <> "camp" And IsNumeric(age) Then
+            On Error Resume Next
+            camps.Add camp, camp
+            ages.Add age, CStr(age)
+            On Error GoTo 0
+        End If
+    Next i
+    
+    '--- Initialize counts array ---
+    ReDim counts(1 To camps.Count, 1 To ages.Count)
+    
+    '--- Count occurrences ---
+    For i = 2 To lastRow
+        camp = Trim(ws.Cells(i, colCamp).Value)
+        age = ws.Cells(i, colAge).Value
+        If camp <> "" And IsNumeric(age) Then
+            Dim campIdx As Long, ageIdx As Long
+            campIdx = GetCollectionIndex(camps, camp)
+            ageIdx = GetCollectionIndex(ages, CStr(age))
+            If campIdx > 0 And ageIdx > 0 Then counts(campIdx, ageIdx) = counts(campIdx, ageIdx) + 1
+        End If
+    Next i
+    
+    '--- Append table below previous summary tables ---
+    startRow = wsOut.Cells(wsOut.Rows.Count, "A").End(xlUp).Row + 4
+    
+    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 1 + ages.Count)).Merge
+    wsOut.Cells(startRow, 1).Value = "Camp by Age (Counts)"
+    wsOut.Cells(startRow, 1).Font.Bold = True
+    wsOut.Cells(startRow, 1).Font.Size = 14
+    wsOut.Cells(startRow, 1).HorizontalAlignment = xlCenter
+    startRow = startRow + 1
+    
+    '--- Header row ---
+    wsOut.Cells(startRow, 1).Value = "Camp"
+    For c = 1 To ages.Count: wsOut.Cells(startRow, c + 1).Value = ages(c): Next c
+    
+    '--- Fill data ---
+    For r = 1 To camps.Count
+        wsOut.Cells(startRow + r, 1).Value = camps(r)
+        For c = 1 To ages.Count: wsOut.Cells(startRow + r, c + 1).Value = counts(r, c): Next c
+    Next r
+    
+    '--- Format table ---
+    Set tblCampByAge = wsOut.ListObjects.Add(xlSrcRange, _
+        wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow + camps.Count, 1 + ages.Count)), , xlYes)
+    tblCampByAge.Name = "tblCampByAge"
+    tblCampByAge.TableStyle = "TableStyleMedium9"
+    wsOut.Columns.AutoFit
+    
+    '--- Find Revenue chart ---
+    Set revChart = Nothing
+    For Each chartLoop In wsDash.ChartObjects
+        If chartLoop.Chart.HasTitle Then
+            If chartLoop.Chart.ChartTitle.Text = "Revenue by Camp" Then
+                Set revChart = chartLoop
+            End If
+        End If
+    Next chartLoop
+    
+    If revChart Is Nothing Then Exit Sub
+    
+    '--- Create Camp-by-Age line chart to right of Revenue chart ---
+    chartLeft = revChart.Left + revChart.Width + 20
+    chartWidth = revChart.Width * 2
+    
+    Set chartObj = wsDash.ChartObjects.Add(Left:=chartLeft, Top:=revChart.Top, Width:=chartWidth, Height:=revChart.Height)
+    With chartObj.Chart
+        .ChartType = xlLine
+        .HasTitle = True
+        .ChartTitle.Text = "Camp by Age Counts"
+        .Axes(xlCategory).HasTitle = True
+        .Axes(xlCategory).AxisTitle.Text = "Age"
+        .Axes(xlValue).HasTitle = True
+        .Axes(xlValue).AxisTitle.Text = "Count of Campers"
+        
+        Dim seriesIdx As Long
+        For r = 1 To camps.Count
+            .SeriesCollection.NewSeries
+            .SeriesCollection(r).Name = camps(r)
+            .SeriesCollection(r).XValues = wsOut.Range(wsOut.Cells(startRow, 2), wsOut.Cells(startRow, 1 + ages.Count))
+            .SeriesCollection(r).Values = wsOut.Range(wsOut.Cells(startRow + r, 2), wsOut.Cells(startRow + r, 1 + ages.Count))
+        Next r
+        
+        .Legend.Position = xlLegendPositionRight
+    End With
+End Sub
+
+'====================================================
+' BACKGROUND BY CAMP SUMMARY + STACKED COLUMN CHART
+'====================================================
+Public Sub SummarizeBackgroundByCamp(wb As Workbook)
+    Dim ws As Worksheet, wsOut As Worksheet, wsDash As Worksheet
+    Dim lastRow As Long, i As Long
+    Dim colCamp As Long, colBg As Long
+    Dim camp As String, bg As String
+    Dim camps As Collection, bgs As Collection
+    Dim counts() As Long
+    Dim startRow As Long, r As Long, c As Long
+    Dim tblBackgroundByCamp As ListObject
+    Dim chartObj As ChartObject, chartRange As Range
+    Dim revChart As ChartObject, ageChart As ChartObject, chartLoop As ChartObject
+    
+    Set ws = wb.Sheets("Data")
+    
+    '--- Ensure output sheets exist ---
+    On Error Resume Next
+    Set wsOut = wb.Sheets("Summary tables")
+    If wsOut Is Nothing Then Set wsOut = wb.Sheets.Add: wsOut.Name = "Summary tables"
+    
+    Set wsDash = wb.Sheets("Dashboards")
+    If wsDash Is Nothing Then Set wsDash = wb.Sheets.Add: wsDash.Name = "Dashboards"
+    On Error GoTo 0
+    
+    '--- Find columns ---
+    colCamp = FindHeader(ws, "Camp")
+    colBg = FindHeader(ws, "What's your Jewish background?")
+    If colCamp = 0 Or colBg = 0 Then Exit Sub
+    
+    lastRow = ws.Cells(ws.Rows.Count, colCamp).End(xlUp).Row
+    Set camps = New Collection
+    Set bgs = New Collection
+    
+    '--- Collect unique camps and backgrounds ---
+    For i = 2 To lastRow
+        camp = Trim(ws.Cells(i, colCamp).Value)
+        bg = Trim(ws.Cells(i, colBg).Value)
+        If camp <> "" And bg <> "" Then
+            On Error Resume Next
+            camps.Add camp, camp
+            bgs.Add bg, bg
+            On Error GoTo 0
+        End If
+    Next i
+    
+    '--- Initialize counts array ---
+    ReDim counts(1 To camps.Count, 1 To bgs.Count)
+    
+    '--- Count occurrences ---
+    For i = 2 To lastRow
+        camp = Trim(ws.Cells(i, colCamp).Value)
+        bg = Trim(ws.Cells(i, colBg).Value)
+        If camp <> "" And bg <> "" Then
+            Dim campIdx As Long, bgIdx As Long
+            campIdx = GetCollectionIndex(camps, camp)
+            bgIdx = GetCollectionIndex(bgs, bg)
+            If campIdx > 0 And bgIdx > 0 Then counts(campIdx, bgIdx) = counts(campIdx, bgIdx) + 1
+        End If
+    Next i
+    
+    '--- Append table below previous tables ---
+    startRow = wsOut.Cells(wsOut.Rows.Count, "A").End(xlUp).Row + 4
+    
+    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 1 + bgs.Count)).Merge
+    wsOut.Cells(startRow, 1).Value = "Background by Camp"
+    wsOut.Cells(startRow, 1).Font.Bold = True
+    wsOut.Cells(startRow, 1).Font.Size = 14
+    wsOut.Cells(startRow, 1).HorizontalAlignment = xlCenter
+    startRow = startRow + 1
+    
+    '--- Header ---
+    wsOut.Cells(startRow, 1).Value = "Camp"
+    For c = 1 To bgs.Count: wsOut.Cells(startRow, c + 1).Value = bgs(c): Next c
+    
+    '--- Fill data ---
+    For r = 1 To camps.Count
+        wsOut.Cells(startRow + r, 1).Value = camps(r)
+        For c = 1 To bgs.Count: wsOut.Cells(startRow + r, c + 1).Value = counts(r, c): Next c
+    Next r
+    
+    '--- Format table ---
+    Set tblBackgroundByCamp = wsOut.ListObjects.Add(xlSrcRange, _
+        wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow + camps.Count, 1 + bgs.Count)), , xlYes)
+    tblBackgroundByCamp.Name = "tblBackgroundByCamp"
+    tblBackgroundByCamp.TableStyle = "TableStyleMedium9"
+    wsOut.Columns.AutoFit
+    
+    '--- Find Revenue and Camp-by-Age charts ---
+    Set revChart = Nothing
+    Set ageChart = Nothing
+    For Each chartLoop In wsDash.ChartObjects
+        If chartLoop.Chart.HasTitle Then
+            Select Case chartLoop.Chart.ChartTitle.Text
+                Case "Revenue by Camp": Set revChart = chartLoop
+                Case "Camp by Age Counts": Set ageChart = chartLoop
+            End Select
+        End If
+    Next chartLoop
+    
+    If revChart Is Nothing Or ageChart Is Nothing Then Exit Sub
+    
+    '--- Create Background stacked column chart below top two charts ---
+    Set chartObj = wsDash.ChartObjects.Add( _
+        Left:=revChart.Left, _
+        Top:=revChart.Top + Application.Max(revChart.Height, ageChart.Height) + 20, _
+        Width:=revChart.Width + ageChart.Width + 20, _
+        Height:=400)
+    
+    With chartObj.Chart
+        .SetSourceData tblBackgroundByCamp.Range
+        .ChartType = xlColumnStacked
+        .HasTitle = True
+        .ChartTitle.Text = "Background by Camp"
+        .Axes(xlValue).TickLabels.NumberFormat = "#,##0"
+        .Legend.Position = xlLegendPositionRight
+    End With
+End Sub
+'================================================
+' Set up to create one file by camp
+'================================================
+Public Sub CreateFilesByCamp(masterPath As String, desktopPath As String, dtStamp As String)
+
+    Dim wbMaster As Workbook
+    Dim ws As Worksheet
+    Dim colCamp As Long
+    Dim lastRow As Long
+    Dim camps As Collection
+    Dim campName As String
+    Dim i As Long
+
+    '--- OPEN THE CLEAN MASTER FILE ---
+    Set wbMaster = Workbooks.Open(masterPath)
+    Set ws = wbMaster.Sheets("Data")
+
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+
+    '--- Find Camp column ---
+    colCamp = FindHeader(ws, "Camp")
+    If colCamp = 0 Then
+        MsgBox "Camp column not found.", vbCritical
+        wbMaster.Close False
+        Exit Sub
+    End If
+
+    lastRow = ws.Cells(ws.Rows.Count, colCamp).End(xlUp).Row
+
+    '--- Collect unique camps ---
+    Set camps = New Collection
+
+    For i = 2 To lastRow
+        campName = Trim(ws.Cells(i, colCamp).Value)
+        If campName <> "" Then
+            On Error Resume Next
+            camps.Add campName, campName
+            On Error GoTo 0
+        End If
+    Next i
+
+    wbMaster.Close SaveChanges:=False
+
+    '================================================
+    ' LOOP EACH CAMP
+    '================================================
+    For i = 1 To camps.Count
+        campName = camps(i)
+
+        Call BuildSingleCampFile( _
+            masterPath, _
+            campName, _
+            desktopPath, _
+            dtStamp)
+    Next i
+
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+
+End Sub
+'====================================================
+' BUILD ONE CAMP FILE (FULL REBUILD)
+'====================================================
+Private Sub BuildSingleCampFile(masterPath As String, campName As String, desktopPath As String, dtStamp As String)
+
+    Dim wb As Workbook
+    Dim ws As Worksheet
+    Dim colCamp As Long
+    Dim baseName As String
+    Dim outputFile As String
+    Dim lastRow As Long
+    Dim lastCol As Long
+    'Dim headerRange As Range
+    'Dim visibleData As Range
+    'Dim tempWS As Worksheet
+    Dim wsNew As Worksheet
+    Dim writeRow As Long
+    Dim r As Long
+    Dim campValue As String
+    
+    
+    '--- Open fresh copy of master ---
+    Set wb = Workbooks.Open(masterPath)
+    Set ws = wb.Sheets("Data")
+
+    '--- Find Camp column (REQUIRED)
+    colCamp = FindHeader(ws, "Camp")
+
+    If colCamp = 0 Then
+        MsgBox "Camp column not found in BuildSingleCampFile.", vbCritical
+        wb.Close False
+        Exit Sub
+    End If
+    
+    '================================================
+    ' BUILD CLEAN DATA FOR THIS CAMP (NO FILTERS)
+    '================================================
+    
+    lastRow = ws.Cells(ws.Rows.Count, colCamp).End(xlUp).Row
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+
+    '--- create temp clean sheet
+    Set wsNew = wb.Sheets.Add(After:=ws)
+    wsNew.Name = "Data_Clean"
+
+    '--- copy header
+    ws.Range(ws.Cells(1, 1), ws.Cells(1, lastCol)).Copy _
+        Destination:=wsNew.Range("A1")
+
+    writeRow = 2
+
+    '--- loop rows (THIS is the key fix)
+    For r = 2 To lastRow
+
+        campValue = Trim(CStr(ws.Cells(r, colCamp).Value))
+    
+        If StrComp(campValue, campName, vbTextCompare) = 0 Then
+            ws.Range(ws.Cells(r, 1), ws.Cells(r, lastCol)).Copy _
+                Destination:=wsNew.Cells(writeRow, 1)
+            writeRow = writeRow + 1
+        End If
+
+    Next r
+
+    '--- replace original Data sheet
+    Application.DisplayAlerts = False
+    ws.Delete
+    wsNew.Name = "Data"
+    Application.DisplayAlerts = True
+
+    Set ws = wb.Sheets("Data")
+    '================================================
+    ' ?? REBUILD EVERYTHING
+    '================================================
+    Call FormatDataSheet(wb)
+    Call CreatePlaygroundPivot(wb)
+    
+    Dim chartTop As Double
+    chartTop = runRevenueByCamp(wb)
+    
+    Call SummarizeCampByAgeCounts(wb)
+    Call SummarizeBackgroundByCamp(wb)
+    Call SummarizeCampsAttendedBefore(wb)
+    Call OrderSheets(wb)
+    Call AddDashboardHeader(wb)
+    
+    '================================================
+    ' SAFE FILENAME
+    '================================================
+    baseName = "Trybal Gatherings - " & campName
+    
+    baseName = Replace(baseName, ":", "-")
+    baseName = Replace(baseName, "\", "-")
+    baseName = Replace(baseName, "/", "-")
+    baseName = Replace(baseName, "?", "")
+    baseName = Replace(baseName, "*", "")
+    baseName = Replace(baseName, """", "")
+    baseName = Replace(baseName, "<", "")
+    baseName = Replace(baseName, ">", "")
+    baseName = Replace(baseName, "|", "")
+    
+    outputFile = desktopPath & baseName & " - Created " & dtStamp & ".xlsx"
+    
+    '--- Save ---
+    On Error Resume Next
+    wb.SaveAs outputFile
+    On Error GoTo 0
+    
+    wb.Close SaveChanges:=False
+
+End Sub
+
+'====================================================
+' SUMMARIZE CAMPS ATTENDED BEFORE BY CAMP
+'====================================================
+Public Sub SummarizeCampsAttendedBefore(wb As Workbook)
+    Dim ws As Worksheet, wsOut As Worksheet, wsDash As Worksheet
+    Dim lastRow As Long, lastCol As Long, i As Long, j As Long
+    Dim colCamp As Long
+    Dim campCols As Collection, prevCampNames As Collection
+    Dim campName As String, prevCamp As String
+    Dim counts() As Long
+    Dim startRow As Long, r As Long, c As Long
+    Dim tblPrevCamps As ListObject
+    Dim chartObj As ChartObject, chartRange As Range
+    Dim lastChart As ChartObject, chartLoop As ChartObject
+    Dim topPos As Double
+
+    '--- Worksheets ---
+    Set ws = wb.Sheets("Data")
+    
+    ' Ensure summary/output sheets exist
+    On Error Resume Next
+    Set wsOut = wb.Sheets("Summary tables")
+    If wsOut Is Nothing Then Set wsOut = wb.Sheets.Add: wsOut.Name = "Summary tables"
+    
+    Set wsDash = wb.Sheets("Dashboards")
+    If wsDash Is Nothing Then Set wsDash = wb.Sheets.Add: wsDash.Name = "Dashboards"
+    On Error GoTo 0
+
+    '--- Find "Camp" column ---
+    colCamp = FindHeader(ws, "Camp")
+    If colCamp = 0 Then Exit Sub
+
+    '--- Identify all "Which camps? (*)" columns ---
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    Set campCols = New Collection
+    Set prevCampNames = New Collection
+    For i = 1 To lastCol
+        If ws.Cells(1, i).Value Like "Which camps? (*)" Then
+            campCols.Add i
+            prevCamp = Mid(ws.Cells(1, i).Value, InStr(ws.Cells(1, i).Value, "(") + 1, _
+                           InStr(ws.Cells(1, i).Value, ")") - InStr(ws.Cells(1, i).Value, "(") - 1)
+            prevCampNames.Add prevCamp
+        End If
+    Next i
+
+    '--- Collect unique camps ---
+    lastRow = ws.Cells(ws.Rows.Count, colCamp).End(xlUp).Row
+    Dim camps As Collection
+    Set camps = New Collection
+    For i = 2 To lastRow
+        campName = Trim(ws.Cells(i, colCamp).Value)
+        If campName <> "" Then
+            On Error Resume Next
+            camps.Add campName, campName
+            On Error GoTo 0
+        End If
+    Next i
+
+    '--- Initialize counts array ---
+    ReDim counts(1 To camps.Count, 1 To prevCampNames.Count)
+
+    '--- Count "Yes" for each previous camp ---
+    For i = 2 To lastRow
+        campName = Trim(ws.Cells(i, colCamp).Value)
+        If campName <> "" Then
+            Dim campIdx As Long
+            campIdx = GetCollectionIndex(camps, campName)
+            If campIdx > 0 Then
+                For j = 1 To campCols.Count
+                    If LCase(Trim(ws.Cells(i, campCols(j)).Value)) = "yes" Then
+                        counts(campIdx, j) = counts(campIdx, j) + 1
+                    End If
+                Next j
+            End If
+        End If
+    Next i
+
+    '--- Append table below previous summary ---
+    startRow = wsOut.Cells(wsOut.Rows.Count, "A").End(xlUp).Row + 4
+    wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow, 1 + prevCampNames.Count)).Merge
+    wsOut.Cells(startRow, 1).Value = "Previously Attended Camps"
+    wsOut.Cells(startRow, 1).Font.Bold = True
+    wsOut.Cells(startRow, 1).Font.Size = 14
+    wsOut.Cells(startRow, 1).HorizontalAlignment = xlCenter
+    startRow = startRow + 1
+
+    '--- Header row ---
+    wsOut.Cells(startRow, 1).Value = "Camp"
+    For c = 1 To prevCampNames.Count: wsOut.Cells(startRow, c + 1).Value = prevCampNames(c): Next c
+
+    '--- Fill data ---
+    For r = 1 To camps.Count
+        wsOut.Cells(startRow + r, 1).Value = camps(r)
+        For c = 1 To prevCampNames.Count
+            wsOut.Cells(startRow + r, c + 1).Value = counts(r, c)
+        Next c
+    Next r
+
+    '--- Format table ---
+    Set tblPrevCamps = wsOut.ListObjects.Add(xlSrcRange, _
+        wsOut.Range(wsOut.Cells(startRow, 1), wsOut.Cells(startRow + camps.Count, 1 + prevCampNames.Count)), , xlYes)
+    tblPrevCamps.Name = "tblPrevCamps"
+    tblPrevCamps.TableStyle = "TableStyleMedium9"
+    wsOut.Columns.AutoFit
+
+    '--- Find max bottom of existing charts ---
+    Dim maxBottom As Double
+    maxBottom = 0
+    For Each chartLoop In wsDash.ChartObjects
+        If chartLoop.Top + chartLoop.Height > maxBottom Then
+            maxBottom = chartLoop.Top + chartLoop.Height
+        End If
+    Next chartLoop
+    
+    If maxBottom > 0 Then
+        topPos = maxBottom + 20
+    Else
+        topPos = 50
+    End If
+    
+    '--- Create chart ---
+    Set chartObj = wsDash.ChartObjects.Add( _
+        Left:=50, _
+        Top:=topPos, _
+        Width:=1200, _
+        Height:=400)
+    
+         With chartObj.Chart
+            .ChartType = xlColumnStacked
+            .PlotBy = xlRows          ' <--- THIS flips X-axis vs legend
+            .HasTitle = True
+            .ChartTitle.Text = "Camps Attended Before by Camp"
+            .Axes(xlValue).TickLabels.NumberFormat = "#,##0"
+            .Legend.Position = xlLegendPositionRight
+        
+            ' Clear any default series
+            Do While .SeriesCollection.Count > 0
+                .SeriesCollection(1).Delete
+            Loop
+        
+            Dim seriesObj As Series
+            Dim campCell As Range
+            For r = 1 To camps.Count
+                Set campCell = wsOut.Cells(startRow + r, 1) ' Column A = Camp names
+                .SeriesCollection.NewSeries
+                Set seriesObj = .SeriesCollection(.SeriesCollection.Count) ' last series added
+                seriesObj.Name = "='" & wsOut.Name & "'!" & campCell.Address
+                seriesObj.XValues = wsOut.Range(wsOut.Cells(startRow, 2), wsOut.Cells(startRow, 1 + prevCampNames.Count))
+                seriesObj.Values = wsOut.Range(wsOut.Cells(startRow + r, 2), wsOut.Cells(startRow + r, 1 + prevCampNames.Count))
+            Next r
+        End With
+    
+    ' Force refresh
+    DoEvents
+    wsDash.Activate
+    chartObj.Activate
+
+End Sub
+'====================================================
+' HELPERS (Safe column & numeric)
+'====================================================
+Private Function FindHeader(ws As Worksheet, headerName As String) As Long
+    Dim lastCol As Long, c As Long
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    For c = 1 To lastCol
+        If Trim(LCase(ws.Cells(1, c).Value)) = LCase(headerName) Then
+            FindHeader = c
+            Exit Function
+        End If
+    Next c
+End Function
+
+Private Function SafeToDouble(v As Variant) As Double
+    Dim s As String
+    If IsNumeric(v) Then SafeToDouble = CDbl(v): Exit Function
+    s = Replace(v, "$", "")
+    s = Replace(s, ",", "")
+    s = Trim(s)
+    If IsNumeric(s) Then SafeToDouble = CDbl(s)
+End Function
+
+Public Function GetCollectionIndex(col As Collection, key As String) As Long
+    Dim i As Long
+    For i = 1 To col.Count
+        If col(i) = key Then
+            GetCollectionIndex = i
+            Exit Function
+        End If
+    Next i
+End Function
+
