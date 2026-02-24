@@ -1,1 +1,30 @@
+# macOS system files
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+*.venv
+env/
+venv/
+*.egg-info/
+*.egg
+
+# SAS
+*.sas7bdat
+*.sas7bcat
+*.sas7bvew
+*.log
+*.lst
+*.sas
+
+# Backup / temp files
+*.swp
+*.tmp
+*.bak
+*.~*
