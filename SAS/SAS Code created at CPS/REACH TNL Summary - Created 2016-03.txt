@@ -1,0 +1,490 @@
+
+libname tnldata "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\TNL DATA\";
+libname org "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Data Export";
+
+
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take today's date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today       **;
+
+data _null_;
+
+    call symput('todayfm',substr(put(today(),mmddyy10.),7,4)||
+                          substr(put(today(),mmddyy10.),1,2)||
+                          substr(put(today(),mmddyy10.),4,2)|| '_' ||
+						  substr(put(TIME(),hhmm.),1,2) ||
+						  substr(put(TIME(),hhmm.),4,2)
+			   ); 
+    
+	
+run;
+data _null_;
+put "&todayfm";
+run;
+data REACH_summ_a;
+**   set TNLDATA.reach_summative_sample_20150924;
+**   set TNLDATA.REACH_SUMM_EXPORT_SAMPLE;
+**   set org.reach_summative_20150930;
+**   set org.reach_summative_20151014_1311;
+**   set org.reach_summative_20151118_1510;
+set org.reach_summative_20151123_1508;
+
+    **if upcase(final_rating) ='NO RATING' and final_score=. then delete;
+    if upcase(final_rating) ='NO RATING' and REACH_PRELIM_2_SCORE=. then delete;
+run;
+
+data REACH_summ_b;
+  set REACH_summ_a;
+  **if upcase(final_rating) ='NO RATING'; 
+  	if  employee_id in ('000012109');
+run;
+
+
+proc export data=REACH_summ_b
+   outfile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\TNL DATA\Hillel_Sample_File.csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+
+proc freq data=REACH_summ_a;
+ table Plantype reach_va_score_org_detail_py reach_va_score_detail reach_pt_1_score_detail reach_pt_2_score_detail; /* / out=testfreq; */
+run;
+/*
+proc contents data=REACH_summ_a;
+proc print data=REACH_summ_a (obs=10);
+*/
+
+data REACH_summ_pro_practice_b (Keep=employee_id measure_sort measure measure_score reach_score 
+                             weighting_formula measure_weight reach_measure_weighted_score score100 overall);
+  set REACH_summ_a;
+
+  length measure measure_score reach_score 
+         measure_weight weighting_formula reach_measure_weighted_score 
+         score100 overall $100;
+ 
+  if Plantype in ('Annual','Non-Tenured','Biennial-1') then do;
+        measure_sort = 10;
+        measure = 'Professional Practice';
+        measure_score = round(REACH_PRACTICE_SCORE,.01);
+        reach_score = round(REACH_PRACTICE_SCORE,.01);
+		weighting_formula = '';
+        if reach_practice_score_weight NE . then measure_weight = compress(reach_practice_score_weight) || "%"; else measure_weight = '';
+		reach_measure_weighted_score = summ_reach_practice_score / 100;
+        score100 = summ_reach_practice_score;
+       	overall = '';
+
+		output REACH_summ_pro_practice_b;
+  end;
+  else if Plantype in ('Biennial-2') then do;
+        measure_sort = 10;
+        measure = 'Professional Practice';
+        measure_score = round(REACH_PRACTICE_SCORE,.01);
+        reach_score = round(REACH_PRACTICE_SCORE,.01);
+             if (reach_practice_score_weight_py NE .) and (reach_practice_score_weight NE .) then
+                     weighting_formula = '(' || compress(reach_practice_score_weight_py) || '% + ' || compress(reach_practice_score_weight) || '%)/2=';
+		else if (reach_practice_score_weight_py = .) and (reach_practice_score_weight NE .) then
+		             weighting_formula = '(0% + ' || compress(reach_practice_score_weight) || '%)/2=';
+        else if (reach_practice_score_weight_py NE .) and (reach_practice_score_weight =.) then
+                     weighting_formula = '(' || compress(reach_practice_score_weight_py) || '% + 0%)/2=';
+        else weighting_formula = '';
+        if biennial_yr2_practice_weight NE . then measure_weight = compress(biennial_yr2_practice_weight) || "%"; else measure_weight = '';
+        reach_measure_weighted_score = biennial_yr2_practice_weighted / 100;
+        score100 = biennial_yr2_practice_weighted;
+		overall = '';
+
+		output REACH_summ_pro_practice_b;
+  end;
+  else delete;
+run;
+
+data REACH_summ_performance_task_b (Keep=employee_id measure_sort measure measure_score reach_score 
+                             weighting_formula measure_weight reach_measure_weighted_score score100 overall);
+  set REACH_summ_a;
+
+  length measure measure_score reach_score 
+         weighting_formula measure_weight reach_measure_weighted_score 
+         score100 overall $100;
+
+  if Plantype in ('Annual','Non-Tenured','Biennial-1') then do;
+ 
+		if reach_pt_1_score NE . and reach_pt_2_score = . then do;
+
+            measure_sort = 20;
+			measure = 'Student Growth: REACH Performance Task';
+			     if (reach_pt_1_score_detail = 'PT_ALL_SCORE_1') then measure_score = compress(pt_all_growth_pct_1) || "%";
+			else if (reach_pt_1_score_detail = 'PT_ALL_SCORE_2') then measure_score = compress(pt_all_growth_pct_2) || "%";
+		    else if (reach_pt_1_score_detail = 'PT_NUM_SCORE_1') then measure_score = compress(pt_num_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_1') then measure_score = compress(pt_lit_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_2') then measure_score = compress(pt_lit_growth_pct_2) || "%";
+			else if (reach_pt_1_score_detail = '3.12') then measure_score = '';
+
+            reach_score = REACH_PT_1_SCORE;
+            weighting_formula = '';
+            if REACH_PT_1_SCORE_WEIGHT NE . then measure_weight = compress(REACH_PT_1_SCORE_WEIGHT) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = SUMM_REACH_PT_1_SCORE / 100;
+            score100 = SUMM_REACH_PT_1_SCORE;
+			overall = '';
+
+		    output REACH_summ_performance_task_b;
+		   
+		end;
+        if reach_pt_1_score NE . and reach_pt_2_score NE . then do;
+
+            measure_sort = 30;
+			measure = 'Student Growth: REACH Performance Task #1';
+
+                 if (reach_pt_1_score_detail = 'PT_ALL_SCORE_1') then measure_score = compress(pt_all_growth_pct_1) || "%";
+			else if (reach_pt_1_score_detail = 'PT_ALL_SCORE_2') then measure_score = compress(pt_all_growth_pct_2) || "%";
+		    else if (reach_pt_1_score_detail = 'PT_NUM_SCORE_1') then measure_score = compress(pt_num_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_1') then measure_score = compress(pt_lit_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_2') then measure_score = compress(pt_lit_growth_pct_2) || "%";
+			else if (reach_pt_1_score_detail = '3.12') then measure_score = '';
+
+            reach_score = REACH_PT_1_SCORE;
+            weighting_formula = '';
+            if REACH_PT_1_SCORE_WEIGHT NE . then measure_weight = compress(REACH_PT_1_SCORE_WEIGHT) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = summ_reach_pt_1_score / 100;
+            score100 = summ_reach_pt_1_score;
+			overall = '';
+
+		    output REACH_summ_performance_task_b;
+
+            measure_sort = 40;
+			measure = 'Student Growth: REACH Performance Task #2';
+
+			     if reach_pt_2_score_detail = 'PT_ALL_SCORE_2' then measure_score = compress(pt_all_growth_pct_2) || "%";
+		    else if reach_pt_2_score_detail = 'PT_NUM_SCORE_1' then measure_score = compress(pt_num_growth_pct_1) || "%";
+			else if reach_pt_2_score_detail = '3.12' then measure_score = '';
+
+            reach_score = REACH_PT_2_SCORE;
+		    weighting_formula = '';
+            if REACH_PT_2_SCORE_WEIGHT NE . then measure_weight = compress(REACH_PT_2_SCORE_WEIGHT) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = summ_reach_pt_2_score / 100;
+            score100 = summ_reach_pt_2_score;
+			overall = '';
+
+		    output REACH_summ_performance_task_b;
+ 
+		end;
+	end;
+	else if Plantype in ('Biennial-2') then do;
+		if reach_pt_1_score NE . and reach_pt_2_score = . then do;
+
+            measure_sort = 60;
+			measure = 'Student Growth: REACH Performance Task - Year 2';
+			     if (reach_pt_1_score_detail = 'PT_ALL_SCORE_1') then measure_score = compress(pt_all_growth_pct_1) || "%";
+			else if (reach_pt_1_score_detail = 'PT_ALL_SCORE_2') then measure_score = compress(pt_all_growth_pct_2) || "%";
+		    else if (reach_pt_1_score_detail = 'PT_NUM_SCORE_1') then measure_score = compress(pt_num_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_1') then measure_score = compress(pt_lit_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_2') then measure_score = compress(pt_lit_growth_pct_2) || "%";
+			else if (reach_pt_1_score_detail = '3.12') then measure_score = '';
+
+            reach_score = REACH_PT_1_SCORE;
+		    weighting_formula = REACH_PT_1_SCORE_WEIGHT || '%/2=';
+            if BIENNIAL_YR2_PT_YEAR2_1_WEIGHT NE . then measure_weight = compress(BIENNIAL_YR2_PT_YEAR2_1_WEIGHT) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = biennial_yr2_pt_year2_1_weighted / 100;
+            score100 = biennial_yr2_pt_year2_1_weighted;
+			overall = '';
+
+		    output REACH_summ_performance_task_b;
+		   
+		end;
+        if reach_pt_1_score NE . and reach_pt_2_score NE . then do;
+
+            measure_sort = 90;
+			measure = 'Student Growth: REACH Performance Task #1 - Year 2';
+
+                 if (reach_pt_1_score_detail = 'PT_ALL_SCORE_1') then measure_score = compress(pt_all_growth_pct_1) || "%";
+			else if (reach_pt_1_score_detail = 'PT_ALL_SCORE_2') then measure_score = compress(pt_all_growth_pct_2) || "%";
+		    else if (reach_pt_1_score_detail = 'PT_NUM_SCORE_1') then measure_score = compress(pt_num_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_1') then measure_score = compress(pt_lit_growth_pct_1) || "%";
+            else if (reach_pt_1_score_detail = 'PT_LIT_SCORE_2') then measure_score = compress(pt_lit_growth_pct_2) || "%";
+			else if (reach_pt_1_score_detail = '3.12') then measure_score = '';
+
+
+            reach_score = REACH_PT_1_SCORE;
+		    weighting_formula = REACH_PT_1_SCORE_WEIGHT || '%/2=';
+            if BIENNIAL_YR2_PT_YEAR2_1_WEIGHT NE . then measure_weight = compress(BIENNIAL_YR2_PT_YEAR2_1_WEIGHT) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = biennial_yr2_pt_year2_1_weighted / 100;
+            score100 = biennial_yr2_pt_year2_1_weighted;
+			overall = '';
+
+		    output REACH_summ_performance_task_b;
+
+            measure_sort = 100;
+			measure = 'Student Growth: REACH Performance Task #2 - Year 2';
+
+			     if reach_pt_2_score_detail = 'PT_ALL_SCORE_2' then measure_score = compress(pt_all_growth_pct_2) || "%";
+		    else if reach_pt_2_score_detail = 'PT_NUM_SCORE_1' then measure_score = compress(pt_num_growth_pct_1) || "%";
+			else if reach_pt_2_score_detail = '3.12' then measure_score = '';
+			else measure_score = 'ERROR';
+
+            reach_score = REACH_PT_2_SCORE;
+		    if REACH_PT_2_SCORE_WEIGHT NE . then weighting_formula = REACH_PT_2_SCORE_WEIGHT || "%/2="; else= weighting_formula = '';
+            if BIENNIAL_YR2_PT_YEAR2_2_WEIGHT NE . then measure_weight = compress(BIENNIAL_YR2_PT_YEAR2_2_WEIGHT) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = biennial_yr2_pt_year2_2_weighted / 100;
+            score100 = biennial_yr2_pt_year2_2_weighted;
+			overall = '';
+
+		    output REACH_summ_performance_task_b;
+ 
+		end;
+	end;
+ else delete;
+ run;
+
+data REACH_summ_performance_task_py_b (Keep=employee_id measure_sort measure measure_score reach_score 
+                             weighting_formula measure_weight reach_measure_weighted_score score100 overall);
+  set REACH_summ_a;
+
+  length measure measure_score reach_score 
+         weighting_formula measure_weight reach_measure_weighted_score 
+         score100 overall $100;
+
+	if Plantype in ('Biennial-2') then do;
+	
+            measure_sort = 50;
+			measure = 'Student Growth: REACH Performance Task - Year 1';
+			if reach_pt_score_org_py NE . then measure_score = reach_pt_score_org_py || '%'; else measure_score = '';
+            reach_score = REACH_PT_SCORE_PY;
+		    if REACH_PT_SCORE_WEIGHT_PY NE . then weighting_formula =  compress(REACH_PT_SCORE_WEIGHT_PY) || "%/2="; else weighting_formula =  '';
+            if biennial_yr2_pt_year1_weight NE . then measure_weight = compress(biennial_yr2_pt_year1_weight) || "%"; else measure_weight = '';
+            reach_measure_weighted_score = biennial_yr2_pt_year1_weighted / 100;
+            score100 = biennial_yr2_pt_year1_weighted;
+			overall = '';
+
+		    output REACH_summ_performance_task_py_b;
+		   
+		end;
+  else delete;
+run;
+
+data REACH_NWEA_va_b (Keep=employee_id measure_sort measure measure_score reach_score 
+                             weighting_formula measure_weight reach_measure_weighted_score score100 overall);
+  set REACH_summ_a;
+
+  length measure measure_score reach_score 
+         weighting_formula measure_weight reach_measure_weighted_score 
+         score100 overall $100;
+ 
+       if reach_va_score_detail = '' then delete;
+  else if Plantype in ('Annual','Non-Tenured','Biennial-1') then do;
+        measure_sort = 110;
+        measure = 'Student Growth: Value-Added based on NWEA MAP';
+
+		     if reach_va_score_detail = 'IVA' then measure_score = IVA_ES_SCORE_ORG;
+		else if reach_va_score_detail = 'SVA' then measure_score = SVA_ES_SCORE_ORG;
+
+        reach_score = REACH_VA_SCORE;
+		weighting_formula = '';
+		if reach_va_score_weight NE . then measure_weight = compress(reach_va_score_weight) || "%"; else measure_weight = '';
+
+        reach_measure_weighted_score = summ_reach_value_add_score / 100;
+        score100 = summ_reach_value_add_score;
+		overall = '';
+
+		output REACH_NWEA_va_b;
+  end;
+  else if Plantype in ('Biennial-2') then do;
+        measure_sort = 130;
+        measure = 'Student Growth: Value-Added based on NWEA MAP - Year 2';
+
+		     if reach_va_score_detail = 'IVA' then measure_score = IVA_ES_SCORE_ORG;
+		else if reach_va_score_detail = 'SVA' then measure_score = SVA_ES_SCORE_ORG;
+
+        reach_score = REACH_VA_SCORE;
+		if REACH_VA_SCORE_WEIGHT NE . then weighting_formula =  REACH_VA_SCORE_WEIGHT || "%/2="; else weighting_formula = '';
+		if biennial_yr2_va_year2_weight NE . then measure_weight = compress(biennial_yr2_va_year2_weight) || "%"; else measure_weight = '';
+        reach_measure_weighted_score = biennial_yr2_va_year2_weighted / 100;
+        score100 = biennial_yr2_va_year2_weighted;
+		overall = '';
+
+		output REACH_NWEA_va_b;
+  end;
+  else delete;
+run;
+
+
+data REACH_va_py_b (Keep=employee_id measure_sort measure measure_score reach_score 
+                             weighting_formula measure_weight reach_measure_weighted_score score100 overall);
+  set REACH_summ_a;
+
+  length measure measure_score reach_score 
+         weighting_formula measure_weight reach_measure_weighted_score 
+         score100 overall $100;
+ 
+  if Plantype in ('Biennial-2') then do;
+         if reach_va_score_org_detail_py = 'NWEA' then do;
+           measure_sort = 120;
+           measure = 'Student Growth: Value-Added based on NWEA MAP - Year 1';
+         end;
+	else if reach_va_score_org_detail_py = 'EPAS' then do;
+           measure_sort = 120;
+           measure = 'Student Growth: Individual Value-Added based on EPAS - Year 1';
+         end;
+    else delete;
+
+	    
+		measure_score = reach_va_score_org_py;
+		reach_score = REACH_VA_SCORE_PY;
+		if REACH_VA_SCORE_WEIGHT_PY NE . then weighting_formula =  REACH_VA_SCORE_WEIGHT_PY || "%/2="; else weighting_formula =  '';
+		if biennial_yr2_va_year1_weight NE . then measure_weight = compress(biennial_yr2_va_year1_weight) || "%"; else measure_weight = '';
+
+        reach_measure_weighted_score = biennial_yr2_va_year1_weighted / 100;
+        score100 = biennial_yr2_va_year1_weighted;
+		overall = '';
+
+		output REACH_va_py_b;
+  end;
+  else delete;
+run;
+
+data REACH_summ_score_b (Keep=employee_id measure_sort measure measure_score reach_score 
+                             weighting_formula measure_weight reach_measure_weighted_score score100 overall);
+  set REACH_summ_a;
+
+  length measure measure_score reach_score 
+         weighting_formula measure_weight reach_measure_weighted_score 
+         score100 overall $100;
+ 
+  measure_sort = 150;
+  measure = 'Total Summative Score';
+  measure_score = '';
+  reach_score = '';
+  weighting_formula = '';
+  measure_weight = '';
+  reach_measure_weighted_score = '';
+  score100 = '';
+  overall = final_score;
+
+  output REACH_summ_score_b;
+
+  measure_sort = 160;
+  measure = 'REACH Rating';
+  measure_score = '';
+  reach_score = '';
+  weighting_formula = '';
+  measure_weight = '';
+  reach_measure_weighted_score = '';
+  score100 = ''; 
+  overall = final_rating;
+
+  output REACH_summ_score_b;
+  
+run;
+
+proc append data=REACH_summ_pro_practice_b out=REACH_summ_performance_task_b;
+proc append data=REACH_NWEA_va_b out=REACH_summ_performance_task_b;
+proc append data=REACH_summ_score_b out=REACH_summ_performance_task_b;
+proc append data=REACH_summ_performance_task_py_b out=REACH_summ_performance_task_b;
+proc append data=REACH_va_py_b out=REACH_summ_performance_task_b;
+
+proc sort data=REACH_summ_performance_task_b; by employee_id measure_sort;
+/*
+proc print data=REACH_summ_performance_task_b (obs=100);
+ where employee_id in ('000002004','000002161','000011823');
+*/
+data TNL_Summary_Output; 
+   set REACH_summ_performance_task_b;
+   
+   if length(employee_id) = 4 then employee_id = "00000" || employee_id;
+   if length(employee_id) = 5 then employee_id = "0000" || employee_id;
+   if length(employee_id) = 6 then employee_id = "000" || employee_id;
+   if length(employee_id) = 7 then employee_id = "00" || employee_id;
+   if length(employee_id) = 8 then employee_id = "0" || employee_id;
+   if employee_id = '151719' then employee_id = '00151719';
+
+   %macro cleanup(var);
+       if NOTALPHA(&var)=0 then do;
+          &var=&var * 1;
+          if &var = . or &var = '.' then &var = '';
+	   end;
+
+	   if compress(&var)='.' then delete;
+   %mend cleanup;
+   %cleanup(measure_score);
+   %cleanup(reach_score);
+   %cleanup(weighting_formula);
+   %cleanup(measure_weight);
+   %cleanup(reach_measure_weighted_score);
+   %cleanup(score100);
+
+run;
+
+
+proc export data=TNL_Summary_Output
+   outfile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\TNL DATA\TNL_Summary_output_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+proc export data=TNL_Summary_Output
+   outfile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\TNL DATA\TNL_Summary_output_&todayfm..txt"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+ proc print data=TNL_Summary_Output (obs=10);
+ where employee_id in ('000002476','000003327','000002444','000003283');
+ title1 '';
+
+
+ proc sql;
+ create table reach_cnt as
+ (select count(distinct employee_id) as cnt
+ from TNL_Summary_Output
+ /*group by employee_id*/
+ );
+
+ title1 'Distinct Employee ID';
+ proc print data=reach_cnt;
+ title1 '';
+
+ proc sql;
+ create table reach_cnt as
+ (select overall, count(*) as cnt
+ from TNL_Summary_Output 
+ where measure = 'REACH Rating'
+ group by overall
+ );
+
+title1 'Distinct Employee ID';
+ proc print data=reach_cnt;
+title1 '';
+/*
+data thi_data (keep=employee_id measure_score_x reach_score_x);
+  set REACH_summ_a;
+
+  if plantype = '' then delete;
+
+        measure_score_x = REACH_PRACTICE_SCORE;
+        reach_score_x = REACH_PRACTICE_SCORE;
+
+run;
+
+data hillel_data (keep=employee_id measure_score_x reach_score_x);
+  set TNL_Summary_Output;
+
+      if measure_sort = 10;
+
+      measure_score_x = measure_score * 1; 
+      reach_score_x = reach_score * 1;
+
+run;
+
+proc print data=hillel_data (obs=10);
+
+proc sort data=thi_data; by employee_id;
+proc sort data=hillel_data; by employee_id;
+proc contents data=thi_data varnum;
+proc contents data=hillel_data varnum;
+
+proc compare base=thi_data compare=hillel_data briefsummary criterion=.001; id employee_id;
+run;
+*/

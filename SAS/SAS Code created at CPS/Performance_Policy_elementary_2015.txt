@@ -1,0 +1,2299 @@
+***************************************************************************************************************;
+***  This job calculates the Performance Policy and Principal Evaluation for Elementary Schools.           ****;
+***                                                                                                        ****;
+***  The job is located under:                                                                             ****;
+***  /cps/dept_projects/performance_policy/2012/elem/create_performance_policy_elem_2013.sas               ****;
+***  Created by: Hillel Morris                                                                             ****;
+***  Date: September 21st, 2012                                                                            ****;
+***                                                                                                        ****;
+***                                                                                                        ****;
+***  Change Log                                                                                            ****;
+***                                                                                                        ****;
+***                                                                                                        ****;
+
+
+**%INCLUDE "%sysget(HOME)/super_user.sas";
+
+libname elemppol '\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output';
+libname elemprev '\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\input';
+libname ppadjatd "F:\SASFiles\Accountability\Performance_Policy\2014\output";
+/* KELSEY*/
+libname valadd '\\admin\deptdata\CEO\OA\PDP\Value-Added\2013-2014 Value-Added Files\Final NWEA MAP Results';
+
+/*
+%let logo = /cps/dept_projects/logo/cps_new_logo3.bmp;
+*/
+/* options symbolgen mprint mlogic center nodate nonumber; */
+
+/* Year we are looking at */
+%let year = 2014;
+
+/* Do we want to show proc prints */
+%let proc = **;
+
+/* Limit units */
+
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take today's date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today       **;
+
+data _null_;
+
+    call symput('todayfm',substr(put(today(),mmddyy10.),7,4)||
+                          substr(put(today(),mmddyy10.),1,2)||
+                          substr(put(today(),mmddyy10.),4,2)
+                ); 
+
+    call symput('schlyear',"%eval(&year-1)-&year");
+run;
+
+**********************************************************************;
+***  These are the standard cutoffs for compensation points.       ***;
+***  This will allow for easy changing of cutoffs                  ***;
+
+/* performance policy cut points */
+%let pp_level_cp1 = 71;
+%let pp_level_cp2 = 50;
+
+/* principal evaluation range */
+%let prin_eval_cp = 80; /* Greater than or equal */
+
+/* current desc cut points */
+%let current_desc_cp1 = 71;
+%let current_desc_cp2 = 50;
+
+/* Trendandgrowth_desc cut points */
+%let trendandgrowth_desc_cp1 = 71;
+%let trendandgrowth_desc_cp2 = 50;
+
+
+/* Rd_current_desc cut points */
+%let rd_current_desc_cp1 = 82.7;
+%let rd_current_desc_cp2 = 62.7;
+
+/* Rd_trendandgrowth_desc cut points */
+%let rd_trendandgrowth_desc_cp1 = 71;
+%let rd_trendandgrowth_desc_cp2 = 50;
+
+
+/* mt_current_desc cut points */
+%let mt_current_desc_cp1 = 89.4;
+%let mt_current_desc_cp2 = 69.4;
+
+/* mt_trendandgrowth_desc cut points */
+%let mt_trendandgrowth_desc_cp1 = 71;
+%let mt_trendandgrowth_desc_cp2 = 50;
+
+
+/* sc_current_desc cut points */
+%let sc_current_desc_cp1 = 82.4;
+%let sc_current_desc_cp2 = 62.4;
+
+
+/* minimun count to use metric */
+%let min_count = 10;
+
+/* ISAT Reading Improvement points - Meet Exceed */
+%let rd_mexcP_current_cp3 = 56.9;  %let rd_mexcP_current_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let rd_mexcP_current_cp2 = 43.4;  %let rd_mexcP_current_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let rd_mexcP_current_cp1 = 24.8; %let rd_mexcP_current_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let rd_mexcP_trend_cp3 = 6;  %let rd_mexcP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let rd_mexcP_trend_cp2 = 3;  %let rd_mexcP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let rd_mexcP_trend_cp1 = .1; %let rd_mexcP_trend_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let rd_mexcP_auto = 74.2;  /* Automatic Rule */
+
+/* ISAT Math Improvement points - Meet Exceed */
+%let mt_mexcP_current_cp3 = 45.4;  %let mt_mexcP_current_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let mt_mexcP_current_cp2 = 32.5;  %let mt_mexcP_current_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let mt_mexcP_current_cp1 = 18.4;  %let mt_mexcP_current_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let mt_mexcP_trend_cp3 = 6;  %let mt_mexcP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let mt_mexcP_trend_cp2 = 3;  %let mt_mexcP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let mt_mexcP_trend_cp1 = .1;  %let mt_mexcP_trend_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let mt_mexcP_auto = 64.2;  /* Automatic Rule */
+
+/* ISAT Science Improvement points - Meet Exceed */
+%let sc_mexcP_current_cp3 = 80;  %let sc_mexcP_current_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let sc_mexcP_current_cp2 = 70;  %let sc_mexcP_current_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let sc_mexcP_current_cp1 = 50;  %let sc_mexcP_current_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let sc_mexcP_trend_cp3 = 6;  %let sc_mexcP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let sc_mexcP_trend_cp2 = 3;  %let sc_mexcP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let sc_mexcP_trend_cp1 = .1;  %let sc_mexcP_trend_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let sc_mexcP_auto = 90;  /* Automatic Rule */
+
+/* ISAT Composite Improvement points - Exceed Only */
+%let cp_excP_current_cp3 = 12.5; %let cp_excP_current_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let cp_excP_current_cp2 = 6.5; %let cp_excP_current_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let cp_excP_current_cp1 = 1.6; %let cp_excP_current_pr1 = 1; /* 1st Cut Point - Greater than */
+%let cp_excP_trend_cp3 = 6; %let cp_excP_trend_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let cp_excP_trend_cp2 = 3; %let cp_excP_trend_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let cp_excP_trend_cp1 = .1; %let cp_excP_trend_pr1 = 1; /* 1st Cut Point - Greater than */
+%let cp_excP_auto = 76.1;  /* Automatic Rule */
+
+/* ISAT Composite Improvement points - Exceed Only - High Grade */
+%let cp_hg_excP_current_cp3 = 12.5; %let cp_hg_excP_current_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let cp_hg_excP_current_cp2 = 6.5; %let cp_hg_excP_current_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let cp_hg_excP_current_cp1 = 1.6; %let cp_hg_excP_current_pr1 = 1; /* 1st Cut Point - Greater than */
+%let cp_hg_excP_trend_cp3 = 6; %let cp_hg_excP_trend_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let cp_hg_excP_trend_cp2 = 3; %let cp_hg_excP_trend_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let cp_hg_excP_trend_cp1 = .1; %let cp_hg_excP_trend_pr1 = 1; /* 1st Cut Point - Greater than */
+%let cp_hg_excP_auto = 76.1;  /* Automatic Rule */
+
+/* Attendance Improvement Points */
+%let attd_current_cp3 = 95; %let attd_current_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let attd_current_cp2 = 93; %let attd_current_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let attd_current_cp1 = 90; %let attd_current_pr1 = 1; /* 1st Cut Point - Greater than */
+%let attd_trend_cp3 = 1.0; %let attd_trend_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let attd_trend_cp2 = .5; %let attd_trend_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let attd_trend_cp1 = .1; %let attd_trend_pr1 = 1; /* 1st Cut Point - Greater than */
+%let attd_auto = 95;  /* Automatic Rule */
+
+/* Value Added Reading Improvement Points */
+%let va_rdP_trend_cp3 =  1.0;  %let va_rdP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let va_rdP_trend_cp2 =  0.0;  %let va_rdP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let va_rdP_trend_cp1 = -1.0;  %let va_rdP_trend_pr1 = 1;  /* 1st Cut Point - Greater than or equal */
+
+/* Value Added Math Improvement Points */
+%let va_mtP_trend_cp3 =  1.0;  %let va_mtP_trend_pr3 = 3;  /* 3mt Cut Point - Greater than or equal */
+%let va_mtP_trend_cp2 =  0.0;  %let va_mtP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let va_mtP_trend_cp1 = -1.0;  %let va_mtP_trend_pr1 = 1;  /* 1st Cut Point - Greater than or equal */
+
+/* If your ISAT score is this low you are automatically on probation */
+%let isat_low_limit = 24.7;
+
+
+******************************************************;
+***  Time to bring in the data we will need        ***;
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  create table schools_a as
+  Select * from connection to odbc 
+  (SELECT '2014-2015' as school_year
+      ,cast(school_hr_id as int) as unit
+      ,cast(SCHOOL_CODE as int) as schl_id
+      ,school_short_name as schlname 
+      ,SCHOOL_GRADES_GROUP as eh_ind
+      ,SCHOOL_FINANCIAL_ID as oracle_id
+      ,SCHOOL_TYPE as schltype
+      ,SCHOOL_NAME as schlname_l
+      ,FACILITY_ADDRESS as address 
+      ,FACILITY_POSTAL_CODE as zipcode
+      ,FACILITY_POSTAL_ROUTE as mailrun
+      ,'' as FY11_area
+      ,'' as NetworkNumber
+      ,SCHOOL_SUBGROUP as NetworkDescription
+      ,right(SCHOOL_STATE_ID,4) as statunit
+
+
+  FROM [K12INTEL_DW].[DTBL_SCHOOLS] S
+  left join [K12INTEL_DW].[DTBL_FACILITIES] F
+     on S.FACILITIES_KEY = F.FACILITIES_KEY
+  where 1=1
+    and school_hr_id not in ('@ERR','--','Future State','Not Reported','Unknown','Not Applicable')
+
+  union
+
+  SELECT school_year 
+      ,cast(school_hr_id as int) as unit
+      ,cast(SCHOOL_CODE as int) as schl_id
+      ,school_short_name as schlname 
+      ,SCHOOL_GRADES_GROUP as eh_ind
+      ,SCHOOL_FINANCIAL_ID as oracle_id
+      ,SCHOOL_TYPE as schltype
+      ,SCHOOL_NAME as schlname_l
+      ,FACILITY_ADDRESS as address 
+      ,FACILITY_POSTAL_CODE as zipcode
+      ,FACILITY_POSTAL_ROUTE as mailrun
+      ,'' as FY11_area
+      ,'' as NetworkNumber
+      ,SCHOOL_SUBGROUP as NetworkDescription
+      ,right(SCHOOL_STATE_ID,4) as statunit
+
+
+  FROM [K12INTEL_DW].[DTBL_SCHOOL_ANNUAL_ATTRIBS] S
+  left join [K12INTEL_DW].[DTBL_FACILITIES] F
+     on S.FACILITIES_KEY = F.FACILITIES_KEY
+  where 1=1
+    and school_hr_id not in ('@ERR','--','Future State','Not Reported','Unknown','Not Applicable')
+    and school_year >= '2011-2012'
+);
+
+Disconnect from odbc; 
+quit;
+run;
+
+proc sort data=schools_a; by unit school_year;
+
+data schools;
+  set schools_a; by unit school_year;
+     
+      if unit not in (453,959);
+      if last.unit;
+
+run;
+
+/*
+proc export data=schools
+   outfile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\school_list_for_JB_Asof_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+proc print data=schools;
+where schl_id in (609871,609950,610087,610163,610258,610308,610504);
+run;
+
+proc freq data=schools;
+  table school_year NetworkDescription;
+run;
+*/
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+
+  create table racedemo_a as
+  Select * from connection to odbc 
+  (SELECT cast(school_hr_id as int) as unit
+         ,cast(dtbl_students.student_current_grade_code as int) as grade
+         ,Count(Distinct dtbl_students.student_key) as total
+     FROM K12INTEL_DW.DTBL_STUDENTS WITH (NOLOCK)
+   INNER JOIN K12INTEL_DW.DTBL_SCHOOLS WITH (NOLOCK) 
+      ON DTBL_STUDENTS.SCHOOL_KEY = DTBL_SCHOOLS.SCHOOL_KEY 
+   INNER JOIN K12INTEL_DW.DTBL_STUDENT_DETAILS WITH (NOLOCK) 
+      ON DTBL_STUDENT_DETAILS.STUDENT_KEY = DTBL_STUDENTS.STUDENT_KEY
+   inner join k12intel_userdata.xtbl_domain_decodes domain_grade_code WITH (NOLOCK) 
+      on domain_grade_code.domain_code = dtbl_students.student_current_grade_code 
+     and domain_grade_code.domain_name = 'Grade Code'
+   WHERE(STUDENT_ACTIVITY_INDICATOR = 'ACTIVE')
+     /*AND (dtbl_schools.school_subgroup IN ('ES Network - Austin-North Lawndale', 'ES Network - Burnham Park', 'ES Network - Englewood-Gresham', 'ES Network - Fullerton', 'ES Network - Fulton', 'ES Network - Garfield-Humboldt', 'ES Network - Lake Calumet', 'ES Network - Midway', 'ES Network - O''Hare', 'ES Network - Pershing', 'ES Network - Pilsen-Little Village', 'ES Network - Ravenswood-Ridge', 'ES Network - Rock Island', 'ES Network - Skyway', 'HS Network - Far South Side', 'HS Network - North-Northwest Side', 'HS Network - South Side', 'HS Network - Southwest Side', 'HS Network - West Side', 'Network - Alternative', 'Network - AUSL', 'Network - Charter/Contract'))
+*/   
+     and dtbl_schools.school_grades_group in ('Elementary','Middle') 
+     and dtbl_students.student_current_grade_code in ('3','4','5','6','7','8','9','10','11','12')
+   GROUP BY school_hr_id
+           ,domain_sort
+           ,dtbl_students.student_current_grade_code
+   ORDER BY school_hr_id
+           ,domain_sort
+           ,dtbl_students.student_current_grade_code
+  );
+
+Disconnect from odbc; 
+quit;
+run;
+/*
+proc print data=racedemo_a;
+where unit in (2920,3630,4990,5770,6710,6810,7350);
+run;
+*/
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  Create table isat_hg as
+  Select * from connection to odbc (
+      SELECT yr, unit, grade, cp_excP as cp_hg_excP, rd_tt as rd_hg_tt, mt_tt as mt_hg_tt, sc_tt as sc_hg_tt
+		   FROM K12INTEL_STAGING_REA.isat_sch_NewCut
+       where yr between (&year - 4) and (&year - 1)
+	         and cat = 'all'
+         and grade <> 38
+     );
+
+data isat_hg2014 (keep =  yr unit grade cp_hg_excP rd_hg_tt mt_hg_tt sc_hg_tt);
+    set ACCT_PRO.ISAT2014_SCH_FINAL;
+
+	   if cat = 'all' and grade ^= 38;
+
+	     rename cp_excP = cp_hg_excP 
+		        rd_tt = rd_hg_tt
+				mt_tt = mt_hg_tt
+                sc_tt = sc_hg_tt;
+run;
+
+proc append data=isat_hg2014 out=isat_hg;
+
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  create table isatsch as
+  Select * from connection to odbc (
+      SELECT yr, unit, rd_mexcP, mt_mexcP, sc_mexcP, cp_excP, cp_mexcP, rd_tt, mt_tt, sc_tt
+	    FROM K12INTEL_STAGING_REA.isat_sch_NewCut
+       where yr between (&year - 4) and (&year - 1)
+         and cat = 'all'
+         and grade = 38
+     );
+
+  Disconnect from odbc; 
+quit;
+run;
+
+data isat_2014 (keep =  yr unit rd_mexcP mt_mexcP sc_mexcP cp_excP cp_mexcP rd_tt mt_tt sc_tt);
+    set ACCT_PRO.ISAT2014_SCH_FINAL;
+
+    if cat = 'all' and grade = 38;
+run;
+
+proc append data=isat_2014 out=isatsch;
+
+
+/*
+proc print data=isatsch;
+where unit in (2920,3630,4990,5770,6710,6810,7350);
+run;
+*/
+
+proc sql;
+create table schools_dup as
+(select unit, count(*)
+   from schools
+  group by unit
+  having count(*) > 1);
+
+title1 'Duplicate School Records';
+proc print data=schools_dup;
+run; 
+
+*******************************************************************************;
+*** Bring in previous years elem performance policy to get some needed data  **;
+data perf_policy_2013_a;
+   set elemprev.perform_policy_elem_20131025;
+run;
+
+data probation (keep = unit probation&year level&year 
+                            probation%eval(&year-1) level%eval(&year-1) 
+                            probation%eval(&year-2) level%eval(&year-2)
+               );
+/*   merge probation_20102012_a probation_2013_a; by unit; */
+set perf_policy_2013_a;
+
+   if (unit=.) then delete;
+
+ run;
+
+
+**************************************************************************;
+** Now bring in last years performance policy to get attd 2009 - 2011   **;
+
+data perf_policy_prevyr_attd (keep = yr schl_id attd);
+  set perf_policy_2013_a;
+
+	     length yr 4. schl_id 8. attd 5.1;
+            yr=%eval(&year-3);
+            attd=attdCY_2;
+            output;
+
+            yr=%eval(&year-2);
+            attd=attdCY_1;
+            output;
+
+            yr=%eval(&year-1);
+            attd=attdCY;
+            output;
+run;  
+
+
+*********************************************************************************************;
+** Get adjusted attendance off of DW.  Created in this project in job Adjusted Attendance  **;
+
+data perf_policy_curryr_attd (keep = yr schl_id attd) ;
+**     set ppadjatd.schattd_best_possible_20130813;
+**     set ppadjatd.schattd_best_possible_20131025_V1;
+     set ACCT_PRO.SQRPATTD_SY2014_SCH_BEST;
+
+	 if grade_group = 'K12';
+	   
+	     length yr 4. schl_id 8. attd 5.1;
+	     yr = %eval(&year);
+		 schl_id = school_id * 1;
+		 attd = attd_pct;
+run;
+
+proc append data=perf_policy_curryr_attd out=perf_policy_prevyr_attd;
+
+proc sql ;
+create table attd_dup as
+(select schl_id, yr, count(*)
+   from perf_policy_prevyr_attd
+  group by schl_id, yr 
+  having count(*) > 1);
+
+proc print data=attd_dup;
+
+proc sort data=perf_policy_prevyr_attd; by schl_id;
+proc sort data=schools; by schl_id;
+
+data attd_a (keep = yr unit schl_id attd)
+     no_schl;
+  merge perf_policy_prevyr_attd (in = in_attd) schools (in = in_sch); by schl_id;
+
+  if yr >= (&year - 3);
+
+ /***********************************************************************************************/
+ /** Now its time to hard code attendance changes                                              **/
+ /** The following 13 schools are being updated as it was found that Jorge CPS EDU file has    **/
+ /** slightly higher attendance for these schools                                              **/
+ /**                                                                                           **/
+ /** schlname_l	                                  schl_id	unit	yr	attd_mine	attd_cps   **/
+ /** William H Brown Elementary School	          609812	2400	2013	92	        92.1   **/
+ /** Robert Nathaniel Dett Elementary School	  610252	6740	2013	94.9	    95     **/
+ /** Ray Graham Training Center High School       609769	1950	2013	88.6	    88.7   **/
+ /** Nancy B Jefferson Alternative High School    609783	2120	2013	93	        93.3   **/
+ /** Little Black Pearl Art and Design Academy    400137	9054	2013	77.4	    77.7   **/
+ /** Josephine C Locke Elementary School	      610041	4510	2013	95.3	    95.4   **/
+ /** George B McClellan Elementary School	      610062	4710	2013	93.2	    93.3   **/
+ /** Noble Street Charter School – Johnson HS     400106	8028	2013	91.4	    91.5   **/
+ /** Noble Street Charter School - Silver	      400117	9034	2013	92	        92.1   **/
+ /** James N Thorp Elementary School	          610200	6180	2013	90.8	    90.9   **/
+ /** Barbara Vick Early Childhood & Family Center 609871	2920	2013	87	        87.9   **/
+ /** Richard Yates Elementary School	          610234	6510	2013	94.1     	94.2   **/   
+ /** YCCS-CCA Academy HS	                      400128	9045	2013	81.3    	81.4   **/
+
+  if schl_id =400106 and yr = 2013 then attd =91.5;
+  if schl_id =400117 and yr = 2013 then attd =92.1;
+  if schl_id =400128 and yr = 2013 then attd =81.4;
+  if schl_id =400137 and yr = 2013 then attd =77.7;
+  ** if schl_id =609769 and yr = 2013 then attd =88.7;
+  if schl_id =609783 and yr = 2013 then attd =93.3;
+  ** if schl_id =609812 and yr = 2013 then attd = 92.1;
+  if schl_id =609871 and yr = 2013 then attd =87.9;
+  if schl_id =610041 and yr = 2013 then attd =95.4;
+  ** if schl_id =610062 and yr = 2013 then attd =93.3;
+  ** if schl_id =610200 and yr = 2013 then attd =90.9;
+  if schl_id =610234 and yr = 2013 then attd =94.2;
+  if schl_id =610252 and yr = 2013 then attd =95;
+
+
+  /** Also at a later date we recieved ASPIRA CHRTR  - EARLY COLLEGE HS 2011 Attendance data  **/
+  /** We are therefore adding it now per Ryan                                                 **/
+
+  if schl_id =400013 and yr = 2011 then attd =90.9;
+
+        if in_attd and in_sch then output attd_a;
+   else if in_attd and not in_sch then output no_schl;
+   else delete;
+run;
+
+proc sort data=attd_a; by unit yr;
+
+/*
+title1 'Goofy';
+proc freq data=attd_a;
+  tables yr;                    
+run;
+
+
+title1 "attd_a";
+proc print data=attd_a (obs = 100);
+where schl_id =  609674;
+run;
+*/
+                                               
+title1 "Attendance data without a unit number";
+proc print data=no_schl (obs = 100);
+run;
+
+/* Now that new data is in  can go back to regualrly scheduled job */
+
+/* KELSEY*/
+
+*******************************;
+** Bring in value added data **;
+%macro skip;
+data va_data_a;
+   infile '\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2014\input\isat_all_levels_2013_20130809.csv' delimiter = ',' MISSOVER DSD lrecl=32767 firstobs=2 ;
+   informat test $4. ;
+                informat year $9. ;
+                informat level $13. ;
+                informat network_name $2. ;
+                informat school_id $6. ;
+                informat teacher_id $1. ;
+                informat subject $7. ;
+                informat grade best32. ;
+                informat Differential_Effect $15. ;
+                informat Subgroup $10. ;
+                informat Weighted_N best32. ;
+                informat Unweighted_N best32. ;
+                informat va_pctl best32. ;
+                informat Standard_VA best32. ;
+                informat Standard_VA_SE best32. ;
+                informat weighted_avg_pre best32. ;
+                informat weighted_avg_post best32. ;
+                informat gain best32. ;
+
+                format test $4. ;
+                format year $9. ;
+                format level $13. ;
+                format network_name $2. ;
+                format school_id $6. ;
+                format teacher_id $1. ;
+                format subject $7. ;
+                format grade best12. ;
+                format Differential_Effect $15. ;
+                format Subgroup $10. ;
+                format Weighted_N best12. ;
+                format Unweighted_N best12. ;
+                format va_pctl best12. ;
+                format Standard_VA best12. ;
+                format Standard_VA_SE best12. ;
+                format weighted_avg_pre best12. ;
+                format weighted_avg_post best12. ;
+                format gain best12. ;
+             input
+                         test $
+                         year $
+                         level $
+                         network_name $
+                         school_id $
+                         teacher_id $
+                         subject $
+                         grade
+                         Differential_Effect $
+                         Subgroup $
+                         Weighted_N
+                         Unweighted_N
+                         va_pctl
+                         Standard_VA
+                         Standard_VA_SE
+                         weighted_avg_pre
+                         weighted_avg_post
+                         gain
+             ;
+run;
+%mend skip;
+
+data va_data_rd (keep = schl_id va_rdPCY)
+     va_data_mt (keep = schl_id va_mtPCY);
+  /*set va_data_a;*/
+	set valadd._schoolresults_;
+
+   /* if school_id NE "" and Subgroup = "" and grade=99 and year = "&schlyear" and index(level,"School"); */
+
+   if Type = 'CE' and Grade = 99 and year = 2014 and suppression_reason = '';
+
+   schl_id = school_id *1;
+
+   length va_mtPCY va_rdPCY 5.;
+   format va_mtPCY va_rdPCY 5.1;
+
+
+        if index(upcase(subject),'READ') then do;
+           va_rdPCY = round(average_va,.1);
+           output va_data_rd;
+        end;
+   else if index(upcase(subject),'MATH') then do;
+           va_mtPCY = round(average_va,.1);
+           output va_data_mt;
+        end;
+run;
+
+proc sort data = schools; by schl_id;
+proc sort data = va_data_rd; by schl_id;
+proc sort data = va_data_mt; by schl_id;
+
+data va_data_b (keep = unit va_mtPCY va_rdPCY schl_id);
+   merge va_data_rd (in = in_rd) va_data_mt (in = in_mt) schools; by schl_id;
+  
+      if in_rd or in_mt;
+
+run;
+
+proc sort data=va_data_b; by unit;
+
+***************************;
+**  Get grades served    **;
+
+proc sort data=racedemo_a; by unit grade;
+
+proc means data=racedemo_a nway noprint fw=8;
+      class unit grade;
+      var total;
+      output out= racedemo_b (drop = _type_ _freq_)
+            sum(total)=;          
+run;
+
+proc transpose data=racedemo_b out=grades_served_a prefix=grade;
+  by unit;
+  var total;
+  id grade;
+run;
+
+proc sort data=schools; by unit;
+proc sort data=grades_served_a; by unit;
+
+data schlcurr_list (keep = schlname schlname_l schl_id unit statunit NetworkNumber NetworkDescription FY11_area schl_id eh_ind 
+                           address zipcode mailrun
+                           grade3 grade4 grade5 grade6 grade7 grade8 
+                           grade9 grade10 grade11 grade12 schltype);
+  attrib schlname schlname_l schl_id unit statunit NetworkNumber NetworkDescription FY11_area schl_id eh_ind 
+         address zipcode mailrun
+         grade3 grade4 grade5 grade6 grade7 grade8 
+         grade9 grade10 grade11 grade12 schltype label='';
+
+  merge schools (in=in_schlcurr) grades_served_a; by unit;
+
+   if in_schlcurr;
+
+run;
+
+data isat_include_a;
+  set isatsch;
+
+     if yr = &year;
+
+run;
+
+proc sort data = isat_include_a; by unit;
+proc sort data = schlcurr_list; by unit;
+
+
+data schlcurr (keep = schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area address zipcode mailrun schltype);
+  merge schlcurr_list (in=in_schlcurr) isat_include_a (in=in_isat); by unit;
+   if in_schlcurr and in_isat;
+run;
+
+
+proc sort data=schlcurr; by unit;
+proc sort data = isatsch out = isat_sch_a; by unit yr;
+proc sort data = isat_hg out = isat_hg_a; by unit yr;
+
+/*
+proc sort data = isatsch out = isatsch_nodup nodup; by unit;
+
+data in_isat_notin_schlcurr
+     notin_isat_in_schlcurr;
+    merge schlcurr (in=in_schl) isatsch_nodup (in=in_isat); by unit;
+         if in_schl and not in_isat then output notin_isat_in_schlcurr;
+    else if not in_schl and in_isat then output in_isat_notin_schlcurr;
+	else delete;
+run;
+
+proc sort data=schools; by unit;
+
+data in_isat_notin_schlcurr_a;
+   merge in_isat_notin_schlcurr (in=in_isat) schools; by unit;
+
+   if in_isat;
+run;
+
+title1 'in_isat_notin_schlcurr';
+proc print data=in_isat_notin_schlcurr_a;
+run;
+
+title1 'notin_isat_in_schlcurr';
+proc print data=notin_isat_in_schlcurr;
+run;
+*/
+  
+
+*************************************************************************;
+** Get the data needed for high grade exceed composite                ***;
+
+proc sort data=isat_hg_a; by unit yr grade;
+
+data hi_grade (keep = unit hi_grade);
+   set isat_hg_a; by unit yr grade;
+
+     if last.unit;
+     if (yr = &year);
+
+      rename grade =  hi_grade;
+
+/* Per Ryan discussion on AUgust 12th 2011, Owens High Grade should be hard coded to 3rd grade */
+/*
+          if unit = 3470 then hi_grade = 3;
+     else hi_grade = grade; 
+*/
+run;
+
+%macro hi_grade(year2);
+   data isat_hg_a&year2 (keep = yr unit grade cp_hg_excP rd_hg_tt mt_hg_tt sc_hg_tt);
+     merge isat_hg_a hi_grade; by unit;
+  
+      if (yr = &year2);
+
+      if hi_grade = grade then output; else delete;
+   run;
+
+%mend hi_grade;
+%hi_grade(%eval(&year)); %hi_grade(%eval(&year-1)); %hi_grade(%eval(&year-2)); %hi_grade(%eval(&year-3));
+  
+proc append data=isat_hg_a%eval(&year - 1) base=isat_hg_a&year;
+proc append data=isat_hg_a%eval(&year - 2) base=isat_hg_a&year;
+proc append data=isat_hg_a%eval(&year - 3) base=isat_hg_a&year;
+
+proc sort data=isat_hg_a&year; by unit yr;
+
+*************************************************************************;
+** Now the job lays out data in one row and determines growth         ***;
+**   ISAT Reading Improvement points - Meet Exceed                    ***;
+**   ISAT Math Improvement points - Meet Exceed                       ***;
+**   ISAT Science Improvement points - Meet Exceed                    ***;
+**   ISAT Composite Improvement points - Meet Exceed                  ***;
+**   ISAT Composite Improvement points - Exceed Only                  ***;
+**   ISAT Composite Improvement points - Exceed Only - High Grade     ***;
+**   Attendance                                                       ***;
+
+
+********************************************************************************;
+**  First we will take care of rotating the data into one line for each topic **;
+
+%macro rotate(rotate_data_in, rotate_data_out, rotatee);
+proc sort data=&rotate_data_in; by unit yr;
+
+proc transpose data=&rotate_data_in out=&rotate_data_out.a prefix=&rotatee;
+  by unit;
+  var &rotatee;
+  id yr;
+run;
+
+data &rotate_data_out (keep = unit &rotatee.CY &rotatee.CY_1 &rotatee.CY_2 &rotatee.CY_3);
+  set &rotate_data_out.a;
+
+    length &rotatee.CY &rotatee.CY_1 &rotatee.CY_2 &rotatee.CY_3 4.; 
+
+
+    format &rotatee.CY &rotatee.CY_1 &rotatee.CY_2 &rotatee.CY_3 4.1;
+ 
+
+  %macro rot_yr(rot_yr1,rot_yr2);
+    &rotatee.&rot_yr1 = round(&rotatee.&rot_yr2,.1);
+
+    drop &rotatee.&rot_yr2;
+  %mend rot_yr;
+  %rot_yr(CY_3,%eval(&year-3)); %rot_yr(CY_2,%eval(&year-2)); %rot_yr(CY_1,%eval(&year-1)); %rot_yr(CY,&year);
+run;
+
+
+proc sort data=&rotate_data_out; by unit;
+
+/* &proc print data=&rotate_data_out (obs=10); */
+
+%mend rotate;
+
+%rotate(isat_sch_a,isat_rd_mexcP,rd_mexcP);
+%rotate(isat_sch_a,isat_mt_mexcP,mt_mexcP);
+%rotate(isat_sch_a,isat_sc_mexcP,sc_mexcP);
+%rotate(isat_sch_a,isat_cp_excP,cp_excP);
+%rotate(isat_hg_a&year,isat_cp_hg_excP,cp_hg_excP);
+%rotate(attd_a,attd_b,attd);
+%rotate(isat_sch_a,isat_cp_mexcP,cp_mexcP);
+
+
+************************************************************************;
+**  Now we will just keep track of the counts in case we set a minimum **;
+
+%macro rotate_n(rotate_data_in, rotate_data_out, rotatee);
+proc sort data=&rotate_data_in; by unit yr;
+
+proc transpose data=&rotate_data_in out=&rotate_data_out.a prefix=&rotatee;
+  by unit;
+  var &rotatee;
+  id yr;
+run;
+
+data &rotate_data_out (keep = unit &rotatee.CY &rotatee.CY_1 &rotatee.CY_2 &rotatee.CY_3);
+  set &rotate_data_out.a;
+
+  %macro rot_yr(rot_yr1,rot_yr2);
+
+    &rotatee.&rot_yr1 = &rotatee.&rot_yr2;
+
+    drop &rotatee.&rot_yr2;
+  %mend rot_yr;
+  %rot_yr(CY_3,%eval(&year-3)); %rot_yr(CY_2,%eval(&year-2)); %rot_yr(CY_1,%eval(&year-1)); %rot_yr(CY,&year);
+run;
+
+proc sort data=&rotate_data_out; by unit;
+
+%mend rotate_n;
+%rotate_n(isat_sch_a,isat_rd_tt,rd_tt); 
+%rotate_n(isat_sch_a,isat_mt_tt,mt_tt); 
+%rotate_n(isat_sch_a,isat_sc_tt,sc_tt);
+%rotate_n(isat_hg_a&year,isat_rd_hg_tt,rd_hg_tt);
+%rotate_n(isat_hg_a&year,isat_mt_hg_tt,mt_hg_tt);
+%rotate_n(isat_hg_a&year,isat_sc_hg_tt,sc_hg_tt);
+
+run;
+
+************************************************************************;
+**  Here is the meat of the code.  We determine points recieved,      **;
+**  points possible, valid metrics, and which metrics recieved points **;
+**  for hitting the ceiling which would not have happenned due to     **;
+**  growth.                                                           **;
+
+data perf_policy_a; 
+   merge schlcurr (in=in_schlcurr)
+
+         isat_rd_mexcP (in=in_rd_mexcP)
+         isat_mt_mexcP (in=in_mt_mexcP)
+         isat_sc_mexcP (in=in_sc_mexcP)
+         isat_cp_mexcP (in=in_cp_mexcP)
+         isat_cp_excP (in=in_cp_excP)
+         isat_rd_tt 
+         isat_mt_tt 
+         isat_sc_tt 
+
+         hi_grade 
+         isat_cp_hg_excP (in=in_cp_hg_excP)
+         isat_rd_hg_tt
+         isat_mt_hg_tt
+         isat_sc_hg_tt
+
+         attd_b (in=in_attd)
+
+         va_data_b (in=in_value_add); by unit;
+
+    length cp_ttCY cp_ttCY_1 cp_ttCY_2 cp_ttCY_3
+           cp_hg_ttCY cp_hg_ttCY_1 cp_hg_ttCY_2 cp_hg_ttCY_3 8.
+
+           metric_current_rd_mexcP metric_current_mt_mexcP metric_current_sc_mexcP metric_current_cp_excP
+           metric_current_cp_hg_excP metric_current_attd 
+
+           metric_trend_rd_mexcP metric_trend_mt_mexcP metric_trend_sc_mexcP metric_trend_cp_excP
+           metric_trend_cp_hg_excP metric_trend_attd metric_trend_va_rdP metric_trend_va_mtP  3.
+
+           perf_policy_level $30. perf_policy_pr perf_policy_pp 3.;
+
+    if in_schlcurr;
+
+    %macro cp_tt(yr);
+           cp_tt&yr = sum(rd_tt&yr,mt_tt&yr,sc_tt&yr);
+    %mend cp_tt;
+    %cp_tt(CY); %cp_tt(CY_1); %cp_tt(CY_2); %cp_tt(CY_3);
+
+    %macro cp_hg_tt(yr);
+           cp_hg_tt&yr = sum(rd_hg_tt&yr,mt_hg_tt&yr,sc_hg_tt&yr);
+    %mend cp_hg_tt;
+    %cp_hg_tt(CY); %cp_hg_tt(CY_1); %cp_hg_tt(CY_2); %cp_hg_tt(CY_3);
+
+    %macro setup(varp,varc);
+
+       &varp.CY = round(&varp.CY,.1);
+       &varp.CY_1 = round(&varp.CY_1,.1);
+       &varp.CY_2 = round(&varp.CY_2,.1);
+       &varp.CY_3 = round(&varp.CY_3,.1);
+
+       length &varp.current_ED &varp.trend_ED $3.
+              &varp.current_2A &varp.current_1A &varp.current_cyA
+              &varp.trend_2A &varp.trend_3A &varp.trend_a &varp.trend_diff
+              &varp.CY &varp.CY_1 &varp.CY_2 &varp.CY_3 6.;
+
+       format &varp.current_ED &varp.trend_ED $3.
+              &varp.current_2A &varp.current_1A &varp.current_cyA
+              &varp.trend_2A &varp.trend_3A &varp.trend_a &varp.trend_diff
+              &varp.CY &varp.CY_1 &varp.CY_2 &varp.CY_3 5.1;
+
+       /*************************************************/
+       /* The following is for current status analysis  */
+
+           if (&varc.CY_1 >= &min_count) and (&varc.CY >= &min_count) then do;
+                &varp.current_1A = .;
+                &varp.current_2A = round(mean(&varp.CY,&varp.CY_1),.1);
+                &varp.current_cyA = &varp.current_2A;
+                &varp.current_ED = 'Yes';
+           end;
+      else if (&varc.CY >= &min_count) then do;
+                &varp.current_2A = .;
+                &varp.current_1A = &varp.CY;
+                &varp.current_cyA = &varp.current_1A;
+                &varp.current_ED = 'Yes';
+           end;
+      else do;
+                &varp.current_2A = .;
+                &varp.current_1A = .;
+                &varp.current_cyA = .;
+                &varp.current_ED = 'No';
+           end;
+
+       /****************************************/
+       /* The following is for trend analysis  */
+
+            if (&varc.CY_3 >= &min_count) and (&varc.CY_2 >= &min_count) 
+                  and (&varc.CY_1 >= &min_count) and (&varc.CY >= &min_count) then do;
+                &varp.trend_2A = .;
+                &varp.trend_3A = round(mean(&varp.CY_3, &varp.CY_2, &varp.CY_1 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_3A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else if ((&varc.CY_2 >= &min_count) and (&varc.CY_1 >= &min_count))
+           and (&varc.CY >= &min_count) then do;
+                &varp.trend_3A = .;
+                &varp.trend_2A = round(mean(&varp.CY_2,&varp.CY_1 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_2A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else if ((&varc.CY_3 >= &min_count) and (&varc.CY_2 >= &min_count))
+           and (&varc.CY >= &min_count) then do;
+                &varp.trend_3A = .;
+                &varp.trend_2A = round(mean(&varp.CY_3,&varp.CY_2 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_2A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else if ((&varc.CY_3 >= &min_count) and (&varc.CY_1 >= &min_count))
+           and (&varc.CY >= &min_count) then do;
+                &varp.trend_3A = .;
+                &varp.trend_2A = round(mean(&varp.CY_3,&varp.CY_1 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_2A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else do;
+                &varp.trend_ED = 'No';
+                &varp.trend_2A = .;
+                &varp.trend_3A = .;
+                &varp.trend_a = .;
+                &varp.trend_diff = .;
+           end;
+    %mend setup;
+    %setup(attd,attd);
+    %setup(rd_mexcP,rd_tt);
+    %setup(mt_mexcP,mt_tt);
+    %setup(sc_mexcP,sc_tt);
+    %setup(cp_excP,cp_tt);
+    %setup(cp_hg_excP,cp_hg_tt);
+
+%macro skip_attd;
+       length attdcurrent_ED attdtrend_ED $3.
+              attdcurrent_2A attdcurrent_1A attdcurrent_cyA 
+              attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff 
+              attdCY attdCY_1 attdCY_2 attdCY_3 6.;
+
+       format attdcurrent_ED attdtrend_ED $3.
+              attdcurrent_2A attdcurrent_1A attdcurrent_cyA 
+              attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff 
+              attdCY attdCY_1 attdCY_2 attdCY_3 5.1;
+
+       attdCY = round(attdCY,.1);
+       attdCY_1 = round(attdCY_1,.1);
+       attdCY_2 = round(attdCY_2,.1);
+       attdCY_3 = round(attdCY_3,.1);
+
+      /*************************************************/
+      /* The following is for current status analysis  */
+
+           if (attdCY_1 NE .) and (attdCY NE .) then do;
+                attdcurrent_1A = .;                
+                attdcurrent_2A = round(mean(attdCY,attdCY_1),.1);
+                attdcurrent_cyA = attdcurrent_2A;
+                attdcurrent_ED = 'Yes';
+           end;
+      else if (attdCY NE .) then do;
+                attdcurrent_2A = .;
+                attdcurrent_1A = attdCY;
+                attdcurrent_cyA = attdcurrent_1A;
+                attdcurrent_ED = 'Yes';
+           end;
+      else do;
+                attdcurrent_2A = .;
+                attdcurrent_1A = .;
+                attdcurrent_cyA = .;
+                attdcurrent_ED = 'No';
+           end;
+
+       /****************************************/
+       /* The following is for trend analysis  */
+
+           if (attdCY_3 NE .) and (attdCY_2 NE .) and (attdCY_1 NE .) and (attdCY NE .) then do;
+                attdtrend_2A = .;
+                attdtrend_3A = round(mean(attdCY_3, attdCY_2, attdCY_1 ),.1);
+                attdtrend_ED = 'Yes';
+                attdtrend_a = attdtrend_3A;
+                attdtrend_diff = round(attdCY - attdtrend_a,.1);
+           end;
+      else if (attdCY_2 NE .) and (attdCY_1 NE .) and (attdCY NE .) then do;
+                attdtrend_3A = .;
+                attdtrend_2A = round(mean(attdCY_2, attdCY_1 ),.1);
+                attdtrend_ED = 'Yes';
+                attdtrend_a = attdtrend_2A;
+                attdtrend_diff = round(attdCY - attdtrend_a,.1);
+           end;
+      else do;
+                attdtrend_ED = 'No';
+                attdtrend_2A = .;
+                attdtrend_3A = .;
+                attdtrend_diff = .;
+           end;
+%mend skip_attd;
+
+    /****************************************************************************************************/
+    /** Determine number of metrics used in calculation for school for both current and trend status   **/
+
+    %macro curr_trend_analysis1(curr_or_trend);
+       if ((in_rd_mexcP) and (rd_mexcP&curr_or_trend._ED = 'Yes') and (rd_ttCY >= &min_count)) 
+       then metric_&curr_or_trend._rd_mexcP = 1; else metric_&curr_or_trend._rd_mexcP = 0;
+
+       if ((in_mt_mexcP) and (mt_mexcP&curr_or_trend._ED = 'Yes') and (mt_ttCY >= &min_count)) 
+       then metric_&curr_or_trend._mt_mexcP = 1; else metric_&curr_or_trend._mt_mexcP = 0;
+
+       if ((in_sc_mexcP) and (sc_mexcP&curr_or_trend._ED = 'Yes') and (sc_ttCY >= &min_count)) 
+        then metric_&curr_or_trend._sc_mexcP = 1; else metric_&curr_or_trend._sc_mexcP = 0;
+
+       if ((in_cp_excP) and (cp_excP&curr_or_trend._ED = 'Yes') and (cp_ttCY >= &min_count)) 
+        then metric_&curr_or_trend._cp_excP = 1; else metric_&curr_or_trend._cp_excP = 0;
+
+       if ((in_cp_hg_excP) and (cp_hg_excP&curr_or_trend._ED = 'Yes') and (cp_hg_ttCY >= &min_count)) 
+        then metric_&curr_or_trend._cp_hg_excP = 1; else metric_&curr_or_trend._cp_hg_excP = 0;
+
+       if ((in_attd) and (attd&curr_or_trend._ED = 'Yes')) then metric_&curr_or_trend._attd = 1; else metric_&curr_or_trend._attd = 0;
+
+    %mend curr_trend_analysis1;
+    %curr_trend_analysis1(current); %curr_trend_analysis1(trend);
+
+    /******************************************************************************/
+    /** Only use trend analysis on value added.  Does not need current metric.   **/
+
+    if ((in_value_add) and (va_rdPCY NE .)) then metric_trend_va_rdP = 1; else metric_trend_va_rdP = 0;
+
+    if ((in_value_add) and (va_mtPCY NE .)) then metric_trend_va_mtP = 1; else metric_trend_va_mtP = 0;
+
+    /*******************************************************************************/
+    /**  Determine the number of current points a school recieves for each metric **/
+    /**  Remember value added metrics does not have a current component           **/
+    
+    %macro current_points(var);
+
+
+         if metric_current_&var = 0 then do;
+            pr_current_&var = .;
+            pp_current_&var = 0;
+         end;
+        else do;
+             pp_current_&var= &&&var._current_pr3;
+                  if (round(&var.current_cyA,.1) <  &&&var._current_cp1)   then pr_current_&var = 00;
+             else if ((round(&var.current_cyA,.1) >= &&&var._current_cp1) 
+   and (round(&var.current_cyA,.1) < &&&var._current_cp2)) then pr_current_&var =  &&&var._current_pr1;
+             else if ((round(&var.current_cyA,.1) >= &&&var._current_cp2) 
+   and (round(&var.current_cyA,.1) < &&&var._current_cp3)) then pr_current_&var =  &&&var._current_pr2;
+             else if (round(&var.current_cyA,.1) >= &&&var._current_cp3)   then pr_current_&var =  &&&var._current_pr3;
+        end; 
+
+    %mend current_points;
+    %current_points(rd_mexcP);
+    %current_points(mt_mexcP);
+    %current_points(sc_mexcP);
+    %current_points(cp_excP);
+    %current_points(cp_hg_excP);
+    %current_points(attd);
+
+    /************************************************************************************/
+    /**  Now we determine the number of trend points a school recieves for each metric **/
+    /**  except value added metrics                                                    **/
+    
+    %macro trend_points(var);
+
+         if metric_trend_&var = 0 then do;
+            pr_trend_&var = .;
+            pp_trend_&var = 0;
+         end;
+        else do;
+            if round(&var.CY,.1) < &&&var._auto then do;
+                    pp_trend_&var= &&&var._trend_pr3;
+                    if (round(&var.trend_diff,.1) <  round(&&&var._trend_cp1,.1))   then pr_trend_&var = 00;
+               else if ((round(&var.trend_diff,.1) >= round(&&&var._trend_cp1,.1)) and (round(&var.trend_diff,.1) < round(&&&var._trend_cp2,.1))) 
+                   then pr_trend_&var =  &&&var._trend_pr1;
+               else if ((round(&var.trend_diff,.1) >= round(&&&var._trend_cp2,.1)) and (round(&var.trend_diff,.1) < round(&&&var._trend_cp3,.1))) 
+                   then pr_trend_&var =  &&&var._trend_pr2;
+               else if (round(&var.trend_diff,.1) >= round(&&&var._trend_cp3,.1))   then pr_trend_&var =  &&&var._trend_pr3;
+            end;
+            else do;
+               pr_trend_&var = &&&var._trend_pr3;
+               pp_trend_&var = &&&var._trend_pr3;
+            end;
+        end; 
+
+          if (&var.CY >= &&&var._auto) and (round(&var.trend_diff,.1) < round(&&&var._trend_cp3,.1)) 
+        then chelp_trend_&var= 1; else chelp_trend_&var= .;
+
+    %mend trend_points;
+    %trend_points(rd_mexcP);
+    %trend_points(mt_mexcP);
+    %trend_points(sc_mexcP);
+    %trend_points(cp_excP);
+    %trend_points(cp_hg_excP);
+    %trend_points(attd);
+
+    /******************************************************/
+    /**  Determine trend points for value added metrics  **/
+
+    %macro va_trend_points(var);
+
+          if metric_trend_&var = 0 then do;
+            pr_trend_&var = .;
+            pp_trend_&var = 0;
+         end;
+        else do;
+                 pp_trend_&var= &&&var._trend_pr3;
+                 if  (round(&var.CY,.1) <  round(&&&var._trend_cp1,.1))   then pr_trend_&var = 00;
+            else if ((round(&var.CY,.1) >= round(&&&var._trend_cp1,.1)) and (round(&var.CY,.1) < round(&&&var._trend_cp2,.1))) 
+                then pr_trend_&var =  &&&var._trend_pr1;
+            else if ((round(&var.CY,.1) >= round(&&&var._trend_cp2,.1)) and (round(&var.CY,.1) < round(&&&var._trend_cp3,.1))) 
+               then pr_trend_&var =  &&&var._trend_pr2;
+            else if  (round(&var.CY,.1) >= round(&&&var._trend_cp3,.1))   then pr_trend_&var =  &&&var._trend_pr3;
+        end; 
+
+    %mend va_trend_points;
+    %va_trend_points(va_rdP);
+    %va_trend_points(va_mtP);
+
+    /*************************************/
+    /**  Now we get our current totals  **/
+
+    pr_current_total = sum(pr_current_rd_mexcP, pr_current_mt_mexcP, pr_current_sc_mexcP, pr_current_cp_excP,
+        pr_current_cp_hg_excP, pr_current_attd);
+
+    pp_current_total = sum(pp_current_rd_mexcP, pp_current_mt_mexcP, pp_current_sc_mexcP, pp_current_cp_excP,
+        pp_current_cp_hg_excP, pp_current_attd);
+
+    pct_current_total = round((pr_current_total / pp_current_total) * 100,.1);
+
+    /***********************************/
+    /**  Now we get our trend totals  **/
+
+    pr_trend_total = sum(pr_trend_rd_mexcP, pr_trend_mt_mexcP, pr_trend_sc_mexcP, pr_trend_cp_excP,
+      pr_trend_cp_hg_excP, pr_trend_attd, pr_trend_va_rdP, pr_trend_va_mtP);
+ 
+    pp_trend_total = sum(pp_trend_rd_mexcP, pp_trend_mt_mexcP, pp_trend_sc_mexcP, pp_trend_cp_excP,
+      pp_trend_cp_hg_excP, pp_trend_attd, pp_trend_va_rdP, pp_trend_va_mtP);
+
+    pct_trend_total = round((pr_trend_total / pp_trend_total) * 100,.1);
+
+    chelp_trend_total = sum(chelp_trend_rd_mexcP, chelp_trend_mt_mexcP, chelp_trend_sc_mexcP, chelp_trend_cp_excP,
+         chelp_trend_cp_hg_excP, chelp_trend_attd);
+
+    /**********************************************/
+    /**  Now we get our trend and growth totals  **/
+
+    pr_trendandgrowth_rd = sum(pr_trend_rd_mexcP,pr_trend_va_rdP);
+    pp_trendandgrowth_rd = sum(pp_trend_rd_mexcP,pp_trend_va_rdP);
+    pct_trendandgrowth_rd = round((pr_trendandgrowth_rd / pp_trendandgrowth_rd) * 100,.1);
+
+    pr_trendandgrowth_mt = sum(pr_trend_mt_mexcP,pr_trend_va_mtP);
+    pp_trendandgrowth_mt = sum(pp_trend_mt_mexcP,pp_trend_va_mtP);
+    pct_trendandgrowth_mt = round((pr_trendandgrowth_mt / pp_trendandgrowth_mt) * 100,.1);
+
+    pr_trendandgrowth_sc = pr_trend_sc_mexcP;
+    pp_trendandgrowth_sc = pp_trend_sc_mexcP;
+    pct_trendandgrowth_sc = round((pr_trendandgrowth_sc / pp_trendandgrowth_sc) * 100,.1);
+
+    /*******************************************/
+    /**  Determine Perrformance Policy Level  **/
+
+    perf_policy_pr = sum(pr_current_total,pr_trend_total);
+    perf_policy_pp = sum(pp_current_total,pp_trend_total);
+    perf_policy_pct = round((perf_policy_pr / perf_policy_pp) * 100,.1);
+
+
+    if perf_policy_pp >= 27 then do;
+            if (perf_policy_pct < &pp_level_cp2) then perf_policy_level = 'Level 3';
+       else if (perf_policy_pct >= &pp_level_cp2) and (perf_policy_pct < &pp_level_cp1) then perf_policy_level = 'Level 2';
+       else if (perf_policy_pct >= &pp_level_cp1)  then perf_policy_level = 'Level 1';
+       else perf_policy_level = 'ERROR';
+    end;
+    else do; 
+       perf_policy_level = 'Not Enough Data';
+    end;
+
+    /**************************************/
+    /**  Determine Principal Evaluation  **/
+
+     length prin_eval_level $55. pr_trendandgrowth_total pp_trendandgrowth_total 5. pct_trendandgrowth_total 5.;
+     format prin_eval_level $55. pr_trendandgrowth_total pp_trendandgrowth_total 5. pct_trendandgrowth_total 5.1;
+
+      if pp_trend_total >= 12 then do;
+          if (round((pr_trend_total / pp_trend_total) * 100,.1) >= &prin_eval_cp) then prin_eval_level = 'ILE at Chief of Schools Discretion for Exceeds';
+        else prin_eval_level = 'Further Review';
+     end;
+     else prin_eval_level = 'Not Enough Data / Further Review';
+
+    pct_trendandgrowth_total = round((pr_trend_total / pp_trend_total) * 100,.1);;
+    pr_trendandgrowth_total = pr_trend_total;
+    pp_trendandgrowth_total = pp_trend_total;
+     
+run;
+
+/***********************************************************************************************************************/
+/** Recieved email from Ryan on Tues August 20th, 2013:                                                               **/ 
+/**     Good Standing Ineligible List 2013 loaded to Coding Specs folder (EOM)                                        **/
+/** Pulled file into file structure listed in import file below                                                       **/
+
+/* proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2014\input\good_standing_ineligible_list2013.csv" */
+proc import datafile="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\input\GoodStandingIneligibleList2014.csv"
+      out=goodstand_eligible&year
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+/*****************************************************************************/
+/** Combine principal information with performance policy complete file    ***/
+
+proc sort data=goodstand_eligible&year nodup; by unit;
+proc sort data=perf_policy_a; by unit;
+proc sort data=probation; by unit;
+
+data perf_policy_prin 
+   (keep = schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area schltype address zipcode mailrun
+        perf_policy_pr perf_policy_pp perf_policy_pct
+        probation%eval(&year+1) level%eval(&year+1) probation&year level&year probation%eval(&year-1) level%eval(&year-1)
+        prob_reason%eval(&year+1) 
+        rating status goodstand_eligible
+
+        /* prin_fname prin_lname prin_type prin_term 
+        begin_date eval_desg eval_desc */
+        prin_eval_level pr_trendandgrowth_total pp_trendandgrowth_total pct_trendandgrowth_total
+
+        pct_current_total pr_current_total pp_current_total current_desc /* metric_current_total */
+        pct_trend_total pr_trend_total pp_trend_total trendandgrowth_desc 
+        chelp_trend_total /* metric_trend_total */
+  
+        pct_trendandgrowth_rd pr_trendandgrowth_rd pp_trendandgrowth_rd
+        pct_trendandgrowth_mt pr_trendandgrowth_mt pp_trendandgrowth_mt
+        rd_current_desc mt_current_desc sc_current_desc
+        rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc
+
+        pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP pr_current_cp_excP
+        pr_current_cp_hg_excP pr_current_attd 
+ 
+        pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP pr_trend_cp_excP
+        pr_trend_cp_hg_excP pr_trend_attd pr_trend_va_rdP pr_trend_va_mtP
+
+        pr_rd_mexcP pr_mt_mexcP pr_sc_mexcP pr_cp_excP
+        pr_cp_hg_excP pr_attd pr_va_rdP pr_va_mtP
+
+        pp_current_rd_mexcP pp_current_mt_mexcP pp_current_sc_mexcP pp_current_cp_excP
+        pp_current_cp_hg_excP pp_current_attd 
+ 
+        pp_trend_rd_mexcP pp_trend_mt_mexcP pp_trend_sc_mexcP pp_trend_cp_excP
+        pp_trend_cp_hg_excP pp_trend_attd pp_trend_va_rdP pp_trend_va_mtP
+
+        pp_rd_mexcP pp_mt_mexcP pp_sc_mexcP pp_cp_excP 
+        pp_cp_hg_excP pp_attd pp_va_rdP pp_va_mtP
+ 
+        chelp_trend_rd_mexcP chelp_trend_mt_mexcP chelp_trend_sc_mexcP chelp_trend_cp_excP
+        chelp_trend_cp_hg_excP chelp_trend_attd 
+ 
+        rd_mexcPcurrent_ED 
+        rd_mexcPcurrent_2A rd_mexcPcurrent_1A rd_mexcPcurrent_cyA
+        rd_mexcPtrend_ED 
+        rd_mexcPtrend_2A rd_mexcPtrend_3A rd_mexcPtrend_a rd_mexcPtrend_diff
+        rd_mexcPCY rd_mexcPCY_1 rd_mexcPCY_2 rd_mexcPCY_3 
+        rd_ttCY rd_ttCY_1 rd_ttCY_2 rd_ttCY_3
+
+        mt_mexcPcurrent_ED 
+        mt_mexcPcurrent_2A mt_mexcPcurrent_1A mt_mexcPcurrent_cyA
+        mt_mexcPtrend_ED 
+        mt_mexcPtrend_2A mt_mexcPtrend_3A mt_mexcPtrend_a mt_mexcPtrend_diff
+        mt_mexcPCY mt_mexcPCY_1 mt_mexcPCY_2 mt_mexcPCY_3 
+        mt_ttCY mt_ttCY_1 mt_ttCY_2 mt_ttCY_3
+
+        sc_mexcPcurrent_ED 
+        sc_mexcPcurrent_2A sc_mexcPcurrent_1A sc_mexcPcurrent_cyA
+        sc_mexcPtrend_ED 
+        sc_mexcPtrend_2A sc_mexcPtrend_3A sc_mexcPtrend_a sc_mexcPtrend_diff
+        sc_mexcPCY sc_mexcPCY_1 sc_mexcPCY_2 sc_mexcPCY_3 
+        sc_ttCY sc_ttCY_1 sc_ttCY_2 sc_ttCY_3
+
+        cp_mexcPCY
+
+        cp_excPcurrent_ED 
+        cp_excPcurrent_2A cp_excPcurrent_1A cp_excPcurrent_cyA
+        cp_excPCY cp_excPCY_1 cp_excPCY_2 cp_excPCY_3 
+        cp_excPtrend_ED 
+        cp_excPtrend_2A cp_excPtrend_3A cp_excPtrend_a cp_excPtrend_diff
+        cp_ttCY cp_ttCY_1 cp_ttCY_2 cp_ttCY_3
+
+        hi_grade 
+        cp_hg_excPcurrent_ED 
+        cp_hg_excPcurrent_2A cp_hg_excPcurrent_1A cp_hg_excPcurrent_cyA
+        cp_hg_excPtrend_ED 
+        cp_hg_excPtrend_2A cp_hg_excPtrend_3A cp_hg_excPtrend_a cp_hg_excPtrend_diff
+        cp_hg_excPCY cp_hg_excPCY_1 cp_hg_excPCY_2 cp_hg_excPCY_3 
+        cp_hg_ttCY cp_hg_ttCY_1 cp_hg_ttCY_2 cp_hg_ttCY_3
+
+        attdcurrent_ED 
+        attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+        attdtrend_ED 
+        attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+        attdCY attdCY_1 attdCY_2 attdCY_3 
+
+        va_rdPCY va_mtPCY);
+attrib  schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area eh_ind schltype address zipcode mailrun
+        perf_policy_pr perf_policy_pp perf_policy_pct
+        probation%eval(&year+1) level%eval(&year+1) probation&year level&year probation%eval(&year-1) level%eval(&year-1)
+        prob_reason%eval(&year+1) 
+        rating status goodstand_eligible 
+
+        /* prin_fname prin_lname prin_type prin_term 
+        begin_date eval_desg eval_desc */
+        prin_eval_level pr_trendandgrowth_total pp_trendandgrowth_total pct_trendandgrowth_total
+
+        pct_current_total pr_current_total pp_current_total current_desc /* metric_current_total */
+        pct_trend_total pr_trend_total pp_trend_total trendandgrowth_desc 
+        chelp_trend_total /* metric_trend_total */
+  
+        pct_trendandgrowth_rd pr_trendandgrowth_rd pp_trendandgrowth_rd
+        pct_trendandgrowth_mt pr_trendandgrowth_mt pp_trendandgrowth_mt
+        rd_current_desc mt_current_desc sc_current_desc
+        rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc
+
+        pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP pr_current_cp_excP
+        pr_current_cp_hg_excP pr_current_attd 
+ 
+        pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP pr_trend_cp_excP
+        pr_trend_cp_hg_excP pr_trend_attd pr_trend_va_rdP pr_trend_va_mtP
+
+        pr_rd_mexcP pr_mt_mexcP pr_sc_mexcP pr_cp_excP
+        pr_cp_hg_excP pr_attd pr_va_rdP pr_va_mtP
+
+        pp_current_rd_mexcP pp_current_mt_mexcP pp_current_sc_mexcP pp_current_cp_excP
+        pp_current_cp_hg_excP pp_current_attd 
+ 
+        pp_trend_rd_mexcP pp_trend_mt_mexcP pp_trend_sc_mexcP pp_trend_cp_excP
+        pp_trend_cp_hg_excP pp_trend_attd pp_trend_va_rdP pp_trend_va_mtP
+
+        pp_rd_mexcP pp_mt_mexcP pp_sc_mexcP pp_cp_excP 
+        pp_cp_hg_excP pp_attd pp_va_rdP pp_va_mtP
+ 
+        chelp_trend_rd_mexcP chelp_trend_mt_mexcP chelp_trend_sc_mexcP chelp_trend_cp_excP
+        chelp_trend_cp_hg_excP chelp_trend_attd 
+ 
+        rd_mexcPcurrent_ED 
+        rd_mexcPcurrent_2A rd_mexcPcurrent_1A rd_mexcPcurrent_cyA
+        rd_mexcPtrend_ED 
+        rd_mexcPtrend_2A rd_mexcPtrend_3A rd_mexcPtrend_a rd_mexcPtrend_diff
+        rd_mexcPCY rd_mexcPCY_1 rd_mexcPCY_2 rd_mexcPCY_3 
+        rd_ttCY rd_ttCY_1 rd_ttCY_2 rd_ttCY_3
+
+        mt_mexcPcurrent_ED 
+        mt_mexcPcurrent_2A mt_mexcPcurrent_1A mt_mexcPcurrent_cyA
+        mt_mexcPtrend_ED 
+        mt_mexcPtrend_2A mt_mexcPtrend_3A mt_mexcPtrend_a mt_mexcPtrend_diff
+        mt_mexcPCY mt_mexcPCY_1 mt_mexcPCY_2 mt_mexcPCY_3 
+        mt_ttCY mt_ttCY_1 mt_ttCY_2 mt_ttCY_3
+
+        sc_mexcPcurrent_ED 
+        sc_mexcPcurrent_2A sc_mexcPcurrent_1A sc_mexcPcurrent_cyA
+        sc_mexcPtrend_ED 
+        sc_mexcPtrend_2A sc_mexcPtrend_3A sc_mexcPtrend_a sc_mexcPtrend_diff
+        sc_mexcPCY sc_mexcPCY_1 sc_mexcPCY_2 sc_mexcPCY_3 
+        sc_ttCY sc_ttCY_1 sc_ttCY_2 sc_ttCY_3
+
+        cp_mexcPCY
+
+        cp_excPcurrent_ED 
+        cp_excPcurrent_2A cp_excPcurrent_1A cp_excPcurrent_cyA
+        cp_excPCY cp_excPCY_1 cp_excPCY_2 cp_excPCY_3 
+        cp_excPtrend_ED 
+        cp_excPtrend_2A cp_excPtrend_3A cp_excPtrend_a cp_excPtrend_diff
+        cp_ttCY cp_ttCY_1 cp_ttCY_2 cp_ttCY_3
+
+        hi_grade 
+        cp_hg_excPcurrent_ED 
+        cp_hg_excPcurrent_2A cp_hg_excPcurrent_1A cp_hg_excPcurrent_cyA
+        cp_hg_excPtrend_ED 
+        cp_hg_excPtrend_2A cp_hg_excPtrend_3A cp_hg_excPtrend_a cp_hg_excPtrend_diff
+        cp_hg_excPCY cp_hg_excPCY_1 cp_hg_excPCY_2 cp_hg_excPCY_3 
+        cp_hg_ttCY cp_hg_ttCY_1 cp_hg_ttCY_2 cp_hg_ttCY_3
+
+        attdcurrent_ED 
+        attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+        attdtrend_ED 
+        attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+        attdCY attdCY_1 attdCY_2 attdCY_3 
+
+        va_rdPCY va_mtPCY label='';
+
+ merge perf_policy_a(in=a) probation goodstand_eligible&year; by unit; /* principals(in=b) ayp_sch (in=in_ayp) */
+    if a;
+
+    length status probation%eval(&year+1) $28. prob_reason%eval(&year+1) $125.
+           level%eval(&year+1) current_desc rd_current_desc mt_current_desc sc_current_desc $20. 
+           rating trendandgrowth_desc rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc $75.;
+
+    level%eval(&year+1) = perf_policy_level;
+
+/******************************************************************************************************************/
+/**  For the most part, all schools in Area 27 or Area 30 should be                                              **/
+/**  Not applicable for the probation status.                                                                    **/
+/**  However the two exceptions are Christopher Elementary School (609855) and Neil Elementary School (610093).  **/
+/**  These two should receive a probation status based on their level.                                           **/
+/**                                                                                                              **/
+/**  Need to force Harvard Elementary to probation, based on 8.3 issue described in the code.                    **/
+/**                                                                                                              **/
+/**  20110804 HJM:                                                                                               **/
+/**  Since no longer using area, use schltype to check for Charters                                              **/
+/**  Good standing file replaces the 8.3 indicator                                                               **/
+/**                                                                                                              **/
+/**  20110811 HJM:                                                                                               **/
+/**  Since no longer using area, Ryan suggested I use for all schools with a State ID in the 3000 range.         **/
+/**  Ryan checked, and the only Area 27 schools that didn’t have a 3000 ID were Neil and Christopher,            **/
+/**  the two that we specifically allowed to have a probation status in last year’s code.  So this new           **/
+/**  definition will work for my purposes.                                                                       **/
+         
+/*       if compress(area) = '52'                                          then probation2011 = 'Not Applicable'; */
+/*    else if schl_id = 609971                                             then probation2011 = 'Probation'; */
+
+/* Per Ryan on 20130904 force these schools to be 3000 schools */
+/* UCAN THERAPEUTIC ES	 		UCAN Therapeutic ES	 			800015	9030 */
+/* SOUTH CENTRAL THERAPEUTIC ES		South Central Therapeutic ES			800013	9028 */
+/* JEWISH CHILD FAMILY THERAPEUTIC ES	Jewish Child Family Services Therapeutic ES	800010	9025 */
+/* CAMELOT THERAPEUTIC ES	 	Camelot Therapeutic ES	 			800017	9606 */
+/* BEACON THERAPEUTIC ES		Beacon Therapeutic ES				800002	9017 */
+/* NEAR NORTH	 			Near North Elementary School	 		610085	4970 */
+/* BUCKINGHAM				Kate S Buckingham Special Education Center	610280	6980 */
+
+	     if statunit = '@ERR' then statunit='';
+     
+         if upcase(trim(schltype)) = 'CHARTER' then do;
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = 'Charter School';
+            end;
+
+    else if index(upcase(eh_ind),'HIGH') then do; 
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = 'High School';
+            end;
+
+    else if (put(statunit,4.) >= 3000 and put(statunit,4.) < 4000) 
+         or (schl_id >= 800000 and schl_id <= 900000)  then do;
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = '3000 School';
+            end;
+/* (800015,800013,800010,800017,800002,610085,610280) */
+
+    else if goodstand_eligible = 'No' and compress(level%eval(&year+1)) NE ('Level3')  then do;
+               probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = '8.3 School';
+            end;
+
+    else if compress(level%eval(&year+1)) = 'NotEnoughData' then do;
+               probation%eval(&year+1) = 'Not on Probation'; prob_reason%eval(&year+1) = "Not enough data";
+            end;
+
+    else if (cp_mexcPCY < &isat_low_limit and cp_mexcPCY NE . and cp_ttCY >= &min_count and compress(level%eval(&year+1)) NE ('Level3')) then do;  
+              probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = "ISAT Composite Meet Exceed less than 50";
+            end;
+
+    else if level%eval(&year+1) ='Level 3' then do;
+              probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = "Level 3";
+            end;
+
+    else if compress(level%eval(&year+1)) in ('Level1','Level2') and compress(probation&year = 'Probation') 
+        and compress(level&year) = 'Level3' and compress(probation%eval(&year-1)) = 'Probation' then do;
+             probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = "Needs Two Years at Level 2";
+            end;
+
+    else do;
+             probation%eval(&year+1) = 'Not on Probation';    prob_reason%eval(&year+1) = "Met Good Standing Requirements";
+            end;        
+
+
+  ********************************************************************;
+  ** Set rating status current_desc and overall trendandgrowth_desc **;       
+
+       if level%eval(&year+1) = 'Level 1' then rating = 'Excellent Standing (Level 1)';
+  else if level%eval(&year+1) = 'Level 2' then rating = 'Good Standing (Level 2)';
+  else if level%eval(&year+1) = 'Level 3' then rating = 'Low Academic Standing (Level 3)';
+  else rating = 'Not Enough Data';
+
+  status = probation%eval(&year+1);
+
+  if pp_current_total  >= 9 then do;
+          if (pct_current_total < &current_desc_cp2) then current_desc = 'Below Average';
+     else if (pct_current_total >= &current_desc_cp2) and (pct_current_total < &current_desc_cp1) then current_desc = 'Average';
+     else if (pct_current_total >= &current_desc_cp1)  then current_desc = 'Above Average';
+     else current_desc = 'ERROR';
+  end;
+  else do; 
+     current_desc = 'Not Enough Data';
+  end;
+
+  if pp_trendandgrowth_total  >= 9 then do;
+          if (pct_trendandgrowth_total < &trendandgrowth_desc_cp2) then trendandgrowth_desc = 'Less than other CPS schools';
+     else if (pct_trendandgrowth_total >= &trendandgrowth_desc_cp2) and (pct_trendandgrowth_total < &trendandgrowth_desc_cp1) 
+                                                                   then trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (pct_trendandgrowth_total >= &trendandgrowth_desc_cp1) then trendandgrowth_desc = 'More than other CPS schools';
+     else trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+  **********************************************************;
+  ** Set rd_current_desc rd_trendandgrowth_desc **;
+
+  if (rd_mexcPCY >= 0 and rd_ttCY >= 10) then do;
+          if (rd_mexcPCY < &rd_current_desc_cp2)  then rd_current_desc = 'Below Average';
+     else if (rd_mexcPCY >= &rd_current_desc_cp2) and (rd_mexcPCY < &rd_current_desc_cp1) then rd_current_desc = 'Average';
+     else if (rd_mexcPCY >= &rd_current_desc_cp1) then rd_current_desc = 'Above Average';
+     else rd_current_desc = 'ERROR';
+  end;
+  else do; 
+     rd_current_desc = 'Not Enough Data';
+  end;
+
+
+  if pp_trendandgrowth_rd > 0 then do;
+          if (pct_trendandgrowth_rd  <  &rd_trendandgrowth_desc_cp2) then rd_trendandgrowth_desc = 'Less than other CPS schools';
+     else if (pct_trendandgrowth_rd  >= &rd_trendandgrowth_desc_cp2) and (pct_trendandgrowth_rd  < &rd_trendandgrowth_desc_cp1) 
+                                                                   then rd_trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (pct_trendandgrowth_rd  >= &rd_trendandgrowth_desc_cp1) then rd_trendandgrowth_desc = 'More than other CPS schools';
+     else rd_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     rd_trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+  ****************************************************;
+  ** Set mt_current_desc and mt_trendandgrowth_desc **;
+
+  if (mt_mexcPCY >= 0 and mt_ttCY >= 10) then do;
+          if (mt_mexcPCY < &mt_current_desc_cp2) then mt_current_desc = 'Below Average';
+     else if (mt_mexcPCY >= &mt_current_desc_cp2) and (mt_mexcPCY < &mt_current_desc_cp1) then mt_current_desc = 'Average';
+     else if (mt_mexcPCY >= &mt_current_desc_cp1)  then mt_current_desc = 'Above Average';
+     else mt_current_desc = 'ERROR';
+  end;
+  else do; 
+     mt_current_desc = 'Not Enough Data';
+  end;
+
+
+  if pp_trendandgrowth_mt > 0  then do;
+          if (pct_trendandgrowth_mt  < &mt_trendandgrowth_desc_cp2) then mt_trendandgrowth_desc = 'Less than other CPS schools';
+     else if (pct_trendandgrowth_mt  >= &mt_trendandgrowth_desc_cp2) and (pct_trendandgrowth_mt  < &mt_trendandgrowth_desc_cp1) 
+                                                                   then mt_trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (pct_trendandgrowth_mt  >= &mt_trendandgrowth_desc_cp1) then mt_trendandgrowth_desc = 'More than other CPS schools';
+     else mt_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     mt_trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+  ****************************************************;
+  ** Set sc_current_desc and sc_trendandgrowth_desc **;
+
+  if (sc_mexcPCY >= 0 and sc_ttCY >= &min_count) then do;
+          if (sc_mexcPCY < &sc_current_desc_cp2) then sc_current_desc = 'Below Average';
+     else if (sc_mexcPCY >= &sc_current_desc_cp2) and (sc_mexcPCY < &sc_current_desc_cp1) then sc_current_desc = 'Average';
+     else if (sc_mexcPCY >= &sc_current_desc_cp1)  then sc_current_desc = 'Above Average';
+     else sc_current_desc = 'ERROR';
+  end;
+  else do; 
+     sc_current_desc = 'Not Enough Data';
+  end;
+
+
+  if pr_trend_sc_mexcP >= 0 then do;
+          if pr_trend_sc_mexcP in (0,1) then sc_trendandgrowth_desc = 'Less than other CPS schools';
+     else if pr_trend_sc_mexcP = 2 then sc_trendandgrowth_desc = 'About the same as other CPS schools';
+     else if pr_trend_sc_mexcP = 3 then sc_trendandgrowth_desc = 'More than other CPS schools';
+     else sc_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     sc_trendandgrowth_desc = 'Not Enough Data';
+  end;
+ 
+  ********************************************************;
+  ** Combine the current and trend to get total points  **;
+  ** recieved and total points possible                 **;
+  ** There is only trend data for value added, so just  **;
+  ** change name  **;
+  
+  %macro total_pts_rcvd(tpr_var);
+     length pr_&tpr_var 5.1;
+     pr_&tpr_var = sum(pr_current_&tpr_var , pr_trend_&tpr_var);
+     pp_&tpr_var = sum(pp_current_&tpr_var , pp_trend_&tpr_var);
+
+  %mend total_pts_rcvd;
+  %total_pts_rcvd(rd_mexcP); %total_pts_rcvd(mt_mexcP); %total_pts_rcvd(sc_mexcP); %total_pts_rcvd(cp_excP);
+  %total_pts_rcvd(cp_hg_excP); %total_pts_rcvd(attd);
+
+  length pr_va_rdP pr_va_mtP pp_va_rdP pp_va_mtP 5.1;
+  pr_va_rdP = pr_trend_va_rdP;
+  pr_va_mtP = pr_trend_va_mtP;
+
+  pp_va_rdP = pp_trend_va_rdP;
+  pp_va_mtP = pp_trend_va_mtP;
+
+
+  ********************************;
+  ** Apply rule of 10 to output **;
+
+  %macro zero_out(yr);
+
+    %macro sub_mexc_zo (sub);
+        if &sub._tt&yr < 10 then &sub._mexcP&yr= .; 
+    %mend sub_mexc_zo;
+    %sub_mexc_zo(rd);  %sub_mexc_zo(mt); %sub_mexc_zo(sc); %sub_mexc_zo(cp);
+
+    %macro sub_exc_zo (sub);
+        if &sub._tt&yr < 10 then &sub._excP&yr= .; 
+    %mend sub_exc_zo;
+    %sub_exc_zo(cp); %sub_exc_zo(cp_hg);
+
+  %mend zero_out;
+  %zero_out(CY); %zero_out(CY_1); %zero_out(CY_2); %zero_out(CY_3);
+
+run;
+
+/*
+%macro prinfreq1(var1,var2);
+  proc freq data=perf_policy_prin;
+    tables &var1 * &var2 /  missing;
+  run;
+%mend prinfreq1;
+%prinfreq1(probation%eval(&year+1),level%eval(&year+1)); 
+%prinfreq1(probation&year,level&year); 
+%prinfreq1(probation%eval(&year+1),probation&year); 
+%prinfreq1(level%eval(&year+1),level&year); 
+*/
+
+******************************************;
+** Create Probation listing and reports **;
+
+data elemppol.perform_policy_elem_&todayfm
+   (keep = schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area eh_ind schltype address zipcode mailrun
+        perf_policy_pr perf_policy_pp perf_policy_pct
+        probation%eval(&year+1) level%eval(&year+1) probation&year level&year probation%eval(&year-1) 
+        prob_reason%eval(&year+1) 
+        rating status goodstand_eligible current_desc
+
+        /* prin_fname prin_lname prin_type prin_term 
+        begin_date eval_desg eval_desc */
+        prin_eval_level pr_trendandgrowth_total pp_trendandgrowth_total pct_trendandgrowth_total
+
+        pct_current_total pr_current_total pp_current_total /* current_desc metric_current_total */
+        pct_trend_total pr_trend_total pp_trend_total trendandgrowth_desc 
+        chelp_trend_total /* metric_trend_total */
+  
+        pct_trendandgrowth_rd pr_trendandgrowth_rd pp_trendandgrowth_rd
+        pct_trendandgrowth_mt pr_trendandgrowth_mt pp_trendandgrowth_mt
+        rd_current_desc mt_current_desc sc_current_desc
+        rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc 
+        pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP pr_current_cp_excP
+        pr_current_cp_hg_excP pr_current_attd 
+ 
+        pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP pr_trend_cp_excP
+        pr_trend_cp_hg_excP pr_trend_attd pr_trend_va_rdP pr_trend_va_mtP
+
+        pr_rd_mexcP pr_mt_mexcP pr_sc_mexcP pr_cp_excP
+        pr_cp_hg_excP pr_attd pr_va_rdP pr_va_mtP
+
+        pp_current_rd_mexcP pp_current_mt_mexcP pp_current_sc_mexcP pp_current_cp_excP
+        pp_current_cp_hg_excP pp_current_attd 
+ 
+        pp_trend_rd_mexcP pp_trend_mt_mexcP pp_trend_sc_mexcP pp_trend_cp_excP
+        pp_trend_cp_hg_excP pp_trend_attd pp_trend_va_rdP pp_trend_va_mtP
+
+        pp_rd_mexcP pp_mt_mexcP pp_sc_mexcP pp_cp_excP 
+        pp_cp_hg_excP pp_attd pp_va_rdP pp_va_mtP
+ 
+        chelp_trend_rd_mexcP chelp_trend_mt_mexcP chelp_trend_sc_mexcP chelp_trend_cp_excP
+        chelp_trend_cp_hg_excP chelp_trend_attd 
+ 
+        rd_mexcPcurrent_ED 
+        rd_mexcPcurrent_2A rd_mexcPcurrent_1A rd_mexcPcurrent_cyA
+        rd_mexcPtrend_ED 
+        rd_mexcPtrend_2A rd_mexcPtrend_3A rd_mexcPtrend_a rd_mexcPtrend_diff
+        rd_mexcPCY rd_mexcPCY_1 rd_mexcPCY_2 rd_mexcPCY_3 
+        rd_ttCY rd_ttCY_1 rd_ttCY_2 rd_ttCY_3
+
+        mt_mexcPcurrent_ED 
+        mt_mexcPcurrent_2A mt_mexcPcurrent_1A mt_mexcPcurrent_cyA
+        mt_mexcPtrend_ED 
+        mt_mexcPtrend_2A mt_mexcPtrend_3A mt_mexcPtrend_a mt_mexcPtrend_diff
+        mt_mexcPCY mt_mexcPCY_1 mt_mexcPCY_2 mt_mexcPCY_3 
+        mt_ttCY mt_ttCY_1 mt_ttCY_2 mt_ttCY_3
+
+        sc_mexcPcurrent_ED 
+        sc_mexcPcurrent_2A sc_mexcPcurrent_1A sc_mexcPcurrent_cyA
+        sc_mexcPtrend_ED 
+        sc_mexcPtrend_2A sc_mexcPtrend_3A sc_mexcPtrend_a sc_mexcPtrend_diff
+        sc_mexcPCY sc_mexcPCY_1 sc_mexcPCY_2 sc_mexcPCY_3 
+        sc_ttCY sc_ttCY_1 sc_ttCY_2 sc_ttCY_3
+
+        cp_mexcPCY
+
+        cp_excPcurrent_ED 
+        cp_excPcurrent_2A cp_excPcurrent_1A cp_excPcurrent_cyA
+        cp_excPCY cp_excPCY_1 cp_excPCY_2 cp_excPCY_3 
+        cp_excPtrend_ED 
+        cp_excPtrend_2A cp_excPtrend_3A cp_excPtrend_a cp_excPtrend_diff
+        cp_ttCY cp_ttCY_1 cp_ttCY_2 cp_ttCY_3
+
+        hi_grade 
+        cp_hg_excPcurrent_ED 
+        cp_hg_excPcurrent_2A cp_hg_excPcurrent_1A cp_hg_excPcurrent_cyA
+        cp_hg_excPtrend_ED 
+        cp_hg_excPtrend_2A cp_hg_excPtrend_3A cp_hg_excPtrend_a cp_hg_excPtrend_diff
+        cp_hg_excPCY cp_hg_excPCY_1 cp_hg_excPCY_2 cp_hg_excPCY_3 
+        cp_hg_ttCY cp_hg_ttCY_1 cp_hg_ttCY_2 cp_hg_ttCY_3
+
+        attdcurrent_ED 
+        attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+        attdtrend_ED 
+        attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+        attdCY attdCY_1 attdCY_2 attdCY_3
+
+        va_rdPCY va_mtPCY
+
+        level%eval(&year-1));
+
+  attrib schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area eh_ind schltype address zipcode mailrun
+        perf_policy_pr perf_policy_pp perf_policy_pct
+        probation%eval(&year+1) level%eval(&year+1) probation&year level&year probation%eval(&year-1) 
+        prob_reason%eval(&year+1) 
+        rating status goodstand_eligible current_desc
+
+        /* prin_fname prin_lname prin_type prin_term 
+        begin_date eval_desg eval_desc */
+        prin_eval_level pr_trendandgrowth_total pp_trendandgrowth_total pct_trendandgrowth_total
+
+        pct_current_total pr_current_total pp_current_total /* current_desc metric_current_total */
+        pct_trend_total pr_trend_total pp_trend_total trendandgrowth_desc 
+        chelp_trend_total /* metric_trend_total */
+  
+        pct_trendandgrowth_rd pr_trendandgrowth_rd pp_trendandgrowth_rd
+        pct_trendandgrowth_mt pr_trendandgrowth_mt pp_trendandgrowth_mt
+        rd_current_desc mt_current_desc sc_current_desc
+        rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc 
+        pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP pr_current_cp_excP
+        pr_current_cp_hg_excP pr_current_attd 
+ 
+        pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP pr_trend_cp_excP
+        pr_trend_cp_hg_excP pr_trend_attd pr_trend_va_rdP pr_trend_va_mtP
+
+        pr_rd_mexcP pr_mt_mexcP pr_sc_mexcP pr_cp_excP
+        pr_cp_hg_excP pr_attd pr_va_rdP pr_va_mtP
+
+        pp_current_rd_mexcP pp_current_mt_mexcP pp_current_sc_mexcP pp_current_cp_excP
+        pp_current_cp_hg_excP pp_current_attd 
+ 
+        pp_trend_rd_mexcP pp_trend_mt_mexcP pp_trend_sc_mexcP pp_trend_cp_excP
+        pp_trend_cp_hg_excP pp_trend_attd pp_trend_va_rdP pp_trend_va_mtP
+
+        pp_rd_mexcP pp_mt_mexcP pp_sc_mexcP pp_cp_excP 
+        pp_cp_hg_excP pp_attd pp_va_rdP pp_va_mtP
+ 
+        chelp_trend_rd_mexcP chelp_trend_mt_mexcP chelp_trend_sc_mexcP chelp_trend_cp_excP
+        chelp_trend_cp_hg_excP chelp_trend_attd 
+ 
+        rd_mexcPcurrent_ED 
+        rd_mexcPcurrent_2A rd_mexcPcurrent_1A rd_mexcPcurrent_cyA
+        rd_mexcPtrend_ED 
+        rd_mexcPtrend_2A rd_mexcPtrend_3A rd_mexcPtrend_a rd_mexcPtrend_diff
+        rd_mexcPCY rd_mexcPCY_1 rd_mexcPCY_2 rd_mexcPCY_3 
+        rd_ttCY rd_ttCY_1 rd_ttCY_2 rd_ttCY_3
+
+        mt_mexcPcurrent_ED 
+        mt_mexcPcurrent_2A mt_mexcPcurrent_1A mt_mexcPcurrent_cyA
+        mt_mexcPtrend_ED 
+        mt_mexcPtrend_2A mt_mexcPtrend_3A mt_mexcPtrend_a mt_mexcPtrend_diff
+        mt_mexcPCY mt_mexcPCY_1 mt_mexcPCY_2 mt_mexcPCY_3 
+        mt_ttCY mt_ttCY_1 mt_ttCY_2 mt_ttCY_3
+
+        sc_mexcPcurrent_ED 
+        sc_mexcPcurrent_2A sc_mexcPcurrent_1A sc_mexcPcurrent_cyA
+        sc_mexcPtrend_ED 
+        sc_mexcPtrend_2A sc_mexcPtrend_3A sc_mexcPtrend_a sc_mexcPtrend_diff
+        sc_mexcPCY sc_mexcPCY_1 sc_mexcPCY_2 sc_mexcPCY_3 
+        sc_ttCY sc_ttCY_1 sc_ttCY_2 sc_ttCY_3
+
+        cp_mexcPCY
+
+        cp_excPcurrent_ED 
+        cp_excPcurrent_2A cp_excPcurrent_1A cp_excPcurrent_cyA
+        cp_excPCY cp_excPCY_1 cp_excPCY_2 cp_excPCY_3 
+        cp_excPtrend_ED 
+        cp_excPtrend_2A cp_excPtrend_3A cp_excPtrend_a cp_excPtrend_diff
+        cp_ttCY cp_ttCY_1 cp_ttCY_2 cp_ttCY_3
+
+        hi_grade 
+        cp_hg_excPcurrent_ED 
+        cp_hg_excPcurrent_2A cp_hg_excPcurrent_1A cp_hg_excPcurrent_cyA
+        cp_hg_excPtrend_ED 
+        cp_hg_excPtrend_2A cp_hg_excPtrend_3A cp_hg_excPtrend_a cp_hg_excPtrend_diff
+        cp_hg_excPCY cp_hg_excPCY_1 cp_hg_excPCY_2 cp_hg_excPCY_3 
+        cp_hg_ttCY cp_hg_ttCY_1 cp_hg_ttCY_2 cp_hg_ttCY_3
+
+        attdcurrent_ED 
+        attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+        attdtrend_ED 
+        attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+        attdCY attdCY_1 attdCY_2 attdCY_3
+
+        va_rdPCY va_mtPCY
+
+        level%eval(&year-1)
+
+        label='';
+
+  set perf_policy_prin;
+
+  /* Per Will Clark email on Thursday 8-13-2011 removing network information */
+
+   NetworkNumber  = .;
+  /* NetworkDescription = ''; */
+  
+run;
+
+proc sort data=elemppol.perform_policy_elem_&todayfm; by schlname;
+
+proc contents data=elemppol.perform_policy_elem_&todayfm out=elem_performance_policy_layout varnum;
+
+proc export data=elem_performance_policy_layout
+   outfile="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output\perf_policy_elem_layout.csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+
+proc export data=elemppol.perform_policy_elem_&todayfm
+   outfile="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output\perf_policy_elem_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;	
+
+**%let todayfm= 20130904;
+goptions device=actximg;
+
+ods pdf file="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output\perf_policy_elem_freq_&todayfm..pdf" style=sasweb notoc;
+%macro pp_freqs(odsletter,pp_title,pp_freq,pp_freq_out,wherefreq);
+  proc freq data=elemppol.perform_policy_elem_&todayfm noprint;
+    &wherefreq;
+    tables &pp_freq / missing out= &pp_freq_out;
+  run;
+
+   ods pdf(&odsletter) file="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output\&pp_freq_out..pdf" style=sasweb;
+      title1 "&pp_title";
+      proc print data=&pp_freq_out; run;
+   ods pdf(&odsletter) close;
+
+%mend pp_freqs;
+%pp_freqs(a,Probation %eval(&year+1),probation%eval(&year+1),prob,%str(where index(upcase(eh_ind),'HIGH')=0));
+%pp_freqs(b,Level %eval(&year+1),level%eval(&year+1),level,%str(where index(upcase(eh_ind),'HIGH')=0));
+%pp_freqs(c,Probation Reason %eval(&year+1),prob_reason%eval(&year+1)*probation%eval(&year+1),probreason,);
+%pp_freqs(d,Probation %eval(&year+1) vs Probation &year, probation%eval(&year+1)*probation&year,probmovement,);
+%pp_freqs(e,Level %eval(&year+1) vs Level &year, level%eval(&year+1)*level&year,levelmovement,%str(where index(upcase(eh_ind),'HIGH')=0));
+
+ods pdf close;
+
+***************************************;
+** Compare previous run to this year **;
+%macro skip;
+%macro pp_comp(oldfile);
+
+ods pdf file="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\input\output\perf_policy_elem_compare_&todayfm._to_&oldfile..pdf" style=sasweb notoc;
+
+proc sort data=elemppol.perform_policy_elem_&todayfm; by unit schlname;                      
+proc sort data=elemppol.perform_policy_elem_&oldfile; by unit schlname;
+
+title "Comparison of Elementary Performance Policy from &todayfm and 20130819";
+proc compare base=elemppol.perform_policy_elem_&todayfm compare=elemppol.perform_policy_elem_&oldfile listall maxprint=20000;  /* CRITERION=.1 */
+id unit schlname;
+run;
+
+ods pdf close;
+
+%mend pp_comp;
+%pp_comp(20130904);
+**%pp_comp(20130925);
+
+ods pdf close;
+%mend skip;
+******************************************;
+** Build file needed for reports macro  **;
+
+****************************************************;
+**  Take care of the Value Added percentiles     ***;
+**  First we take careof reading and then        ***;
+**  we take care of math                         ***; 
+****************************************************; 
+
+****************************************************;
+** Get the total count of valid records - Reading **; 
+
+
+proc sql;
+  create table va_total_rdct as 
+  (select count(va_rdPCY) as va_total_rdct
+     from va_data_b
+    where va_rdPCY NE .); 
+run;
+
+data _null_;
+  set va_total_rdct;
+    call symput('va_total_rdct',va_total_rdct); 
+run;
+
+*********************************************************;
+** Determine the benchmark percentile ranks  - Reading **;
+
+data va_rd_a;
+   set va_data_b;
+
+      if va_rdPCY NE .;
+
+run;
+
+proc rank data=va_rd_a out=va_rd_b ties=low;
+  var va_rdPCY;
+  ranks va_rd_rank;
+run;
+
+data va_rd_c (keep = schl_id va_rd_rank va_rdPtile);
+   set va_rd_b;
+    
+     va_total_rdct = &va_total_rdct;
+     va_rdPtile = round((((va_rd_rank - 1)/ va_total_rdct) * 100),1);
+
+run;
+
+
+****************************************************;
+** Get the total count of valid recomts - Math **; 
+
+
+proc sql;
+  create table va_total_mtct as 
+  (select count(va_mtPCY) as va_total_mtct
+     from va_data_b
+    where va_mtPCY NE .); 
+run;
+
+data _null_;
+  set va_total_mtct;
+    call symput('va_total_mtct',va_total_mtct); 
+run;
+
+*********************************************************;
+** Determine the benchmark percentile ranks  - Reading **;
+
+data va_mt_a;
+   set va_data_b;
+
+      if va_mtPCY NE .;
+
+run;
+
+proc rank data=va_mt_a out=va_mt_b ties=low;
+  var va_mtPCY;
+  ranks va_mt_rank;
+run;
+
+data va_mt_c (keep = schl_id va_mt_rank va_mtPtile);
+   set va_mt_b;
+    
+     va_total_mtct = &va_total_mtct;
+     va_mtPtile = round((((va_mt_rank - 1)/ va_total_mtct) * 100),1);
+
+run;
+
+
+proc import datafile="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\input\el_pp_report_prep_20130904.csv"
+      out=el_macro_old_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+data el_macro_old_b;
+  set el_macro_old_a;
+
+  schlid = schl_id * 1;
+
+  keep schlid perf_policy%eval(&year) perf_policy%eval(&year-1);
+
+run;
+
+data el_macro_old_c;
+  set el_macro_old_b;
+
+  schl_id = schlid;
+
+  keep schl_id perf_policy%eval(&year) perf_policy%eval(&year-1);
+
+run;
+
+proc sort data=el_macro_old_c; by schl_id;
+proc sort data=elemppol.perform_policy_elem_&todayfm out=pp_now (drop=cp_mexcPCY); by schl_id;
+proc sort data=va_rd_c; by schl_id;
+proc sort data=va_mt_c; by schl_id;
+proc sort data=perf_policy_a (keep=schl_id cp_mexcPCY cp_mexcPCY_1 cp_mexcPCY_2); by schl_id;
+  
+data el_pp_report_prep (keep= schlname schl_id schlid_text area_text
+                              probation%eval(&year+1) probation%eval(&year) probation%eval(&year-1) 
+                              level%eval(&year+1) level%eval(&year) level%eval(&year-1)
+                              perf_policy%eval(&year+1) perf_policy%eval(&year) perf_policy%eval(&year-1)
+                              isatcp%eval(&year) isatcp%eval(&year-1) isatcp%eval(&year-2)
+                              turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2)
+                              ayp%eval(&year-1) fed_status state_status
+                              rd_mexcPCY_3t rd_mexcPCY_2t rd_mexcPCY_1t rd_mexcPCYt rd_mexcPcurrent_cyAt
+                              pts_mexc_rd_current rd_mexcPtrend_diff pts_mexc_rd_trend pts_mexc_rd
+                              mt_mexcPCY_3t mt_mexcPCY_2t mt_mexcPCY_1t mt_mexcPCYt mt_mexcPcurrent_cyAt
+                              pts_mexc_mt_current mt_mexcPtrend_diff pts_mexc_mt_trend pts_mexc_mt
+							  sc_mexcPCY_3t sc_mexcPCY_2t sc_mexcPCY_1t sc_mexcPCYt sc_mexcPcurrent_cyAt
+                              pts_mexc_sc_current sc_mexcPtrend_diff pts_mexc_sc_trend pts_mexc_sc
+							  cp_excPCY_3t cp_excPCY_2t cp_excPCY_1t cp_excPCYt cp_excPcurrent_cyAt
+                              pts_exc_cp_current cp_excPtrend_diff pts_exc_cp_trend pts_exc_cp
+                              cp_hg_excPCY_3t cp_hg_excPCY_2t cp_hg_excPCY_1t cp_hg_excPCYt cp_hg_excPcurrent_cyAt
+                              pts_exc_cp_hg_current cp_hg_excPtrend_diff pts_exc_cp_hg_trend pts_exc_cp_hg
+							  attdCY_3t attdCY_2t attdCY_1t attdCYt attdcurrent_cyAt
+                              pts_attdcurrent attdtrend_diff pts_attdtrend pts_attd
+		                      va_rdPCY va_rdPtl va_rdPCT va_mtPCY va_mtPtl va_mtPCT 
+                              hi_grade2 unit schlname_l networkcompress
+);
+    attrib schlname schl_id schlid_text area_text
+           probation%eval(&year+1) probation%eval(&year) probation%eval(&year-1) 
+           level%eval(&year+1) level%eval(&year) level%eval(&year-1)
+           perf_policy%eval(&year+1) perf_policy%eval(&year) perf_policy%eval(&year-1) 
+           isatcp%eval(&year) isatcp%eval(&year-1) isatcp%eval(&year-2)
+           turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2)
+           ayp%eval(&year-1) fed_status state_status
+           rd_mexcPCY_3t rd_mexcPCY_2t rd_mexcPCY_1t rd_mexcPCYt rd_mexcPcurrent_cyAt
+		   pts_mexc_rd_current rd_mexcPtrend_diff pts_mexc_rd_trend pts_mexc_rd
+		   mt_mexcPCY_3t mt_mexcPCY_2t mt_mexcPCY_1t mt_mexcPCYt mt_mexcPcurrent_cyAt
+           pts_mexc_mt_current mt_mexcPtrend_diff pts_mexc_mt_trend pts_mexc_mt
+		   sc_mexcPCY_3t sc_mexcPCY_2t sc_mexcPCY_1t sc_mexcPCYt sc_mexcPcurrent_cyAt
+           pts_mexc_sc_current sc_mexcPtrend_diff pts_mexc_sc_trend pts_mexc_sc
+		   cp_excPCY_3t cp_excPCY_2t cp_excPCY_1t cp_excPCYt cp_excPcurrent_cyAt
+           pts_exc_cp_current cp_excPtrend_diff pts_exc_cp_trend pts_exc_cp
+           cp_hg_excPCY_3t cp_hg_excPCY_2t cp_hg_excPCY_1t cp_hg_excPCYt cp_hg_excPcurrent_cyAt
+           pts_exc_cp_hg_current cp_hg_excPtrend_diff pts_exc_cp_hg_trend pts_exc_cp_hg
+		   attdCY_3t attdCY_2t attdCY_1t attdCYt attdcurrent_cyAt
+           pts_attdcurrent attdtrend_diff pts_attdtrend pts_attd
+		   va_rdPCY va_rdPtl va_rdPCT va_mtPCY va_mtPtl va_mtPCT 
+           hi_grade2 unit schlname_l networkcompress
+    label="";
+    merge pp_now (in=in_pp) el_macro_old_c va_rd_c va_mt_c perf_policy_a; by schl_id;
+
+	if in_pp;
+
+length schlid_text $20. area_text perf_policy%eval(&year+1) $60.
+       isatcp%eval(&year) isatcp%eval(&year-1) isatcp%eval(&year-2)
+       turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2)
+       ayp%eval(&year-1) fed_status state_status $20.;
+
+   schlid = put(schl_id,6.);
+   schlid_text = "School ID: " || put(schlid,6.);
+   area_text = "Network: " || NetworkDescription;
+
+   if perf_policy_pp > 0 then
+     perf_policy%eval(&year+1) 
+          = put(perf_policy_pr ,2.) || " of " || put(perf_policy_pp ,2.) || " (" || compress(put(perf_policy_pct,5.1)) || "%)";
+   else perf_policy%eval(&year+1) = "";
+   
+   if cp_mexcPCY NE . then isatcp%eval(&year) = compress(put(round(cp_mexcPCY,.1),5.1)) || "% (" || compress(%eval(&year)) || ")"; else isatcp%eval(&year) = "";
+   if cp_mexcPCY_1 NE . then isatcp%eval(&year-1) = compress(put(round(cp_mexcPCY_1,.1),5.1)) || "% (" || compress(%eval(&year-1)) || ")"; else isatcp%eval(&year-1) = "";
+   if cp_mexcPCY_2 NE . then isatcp%eval(&year-2) = compress(put(round(cp_mexcPCY_2,.1),5.1)) || "% (" || compress(%eval(&year-2)) || ")"; else isatcp%eval(&year-2) = "";
+
+   turn%eval(&year) = "";
+   turn%eval(&year-1) = "";
+   turn%eval(&year-2) = "";
+
+   ayp%eval(&year-1) = "";
+   fed_status = "";
+   state_status = "";
+
+   %macro pl_sub(sub,pl);
+         if pr_current_&sub._&pl.P NE . then pts_&pl._&sub._current = "(" || compress(put(pr_current_&sub._&pl.P,3.)) || " points)";
+       else pts_&pl._&sub._current = "";
+         if pr_trend_&sub._&pl.P NE . then pts_&pl._&sub._trend = "(" || compress(put(pr_trend_&sub._&pl.P,3.)) || " points)";
+	   else pts_&pl._&sub._trend = "";
+         if pp_&sub._&pl.P NE . then pts_&pl._&sub = compress(put(pr_&sub._&pl.P,3.)) || " of " || compress(put(pp_&sub._&pl.P,3.));
+       else pts_&pl._&sub = "";
+   %mend pl_sub;
+   %pl_sub(rd,mexc);
+   %pl_sub(mt,mexc);
+   %pl_sub(sc,mexc);
+   %pl_sub(cp,exc);
+   %pl_sub(cp_hg,exc);
+/*
+         if pr_current_cp_hg_excP > 0 then pts_exc_cp_hg_current = "(" || compress(put(pr_current_cp_hg_excP,3.)) || " points)";
+       else pts_exc_cp_hg_current = "";
+         if pr_trend_cp_hg_excP > 0 then pts_exc_cp_hg_trend = "(" || compress(put(pr_trend_cp_hg_excP,3.)) || " points)";
+	   else pts_exc_cp_hg_trend = "";
+         if pp_cp_hg_excP NE . then pts_exc_cp_hg = compress(put(pr_cp_hg_excP,3.)) || " of " || compress(put(pp_cp_hg_excP,3.));
+       else pts_exc_cp_hg = "";
+*/
+	     if pr_current_attd NE . then pts_attdcurrent = "(" || compress(put(pr_current_attd,3.)) || " points)";
+       else pts_attdcurrent = "";
+         if pr_trend_attd NE . then pts_attdtrend = "(" || compress(put(pr_trend_attd,3.)) || " points)";
+	   else pts_attdtrend = "";
+         if pp_attd NE . then pts_attd = compress(put(pr_attd,3.)) || " of " || compress(put(pp_attd,3.));
+       else pts_attd = "";
+
+  %macro va(vasub); 
+     if va_&vasub.Ptile NE . then do;
+         if va_&vasub.Ptile >= 13 then do;
+                if mod(va_&vasub.Ptile,10) = 1 then va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "st");
+		   else if mod(va_&vasub.Ptile,10) = 2 then va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "nd");
+		   else if mod(va_&vasub.Ptile,10) = 3 then va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "rd");
+		   else va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "th");
+		 end;
+         else do; 
+		        if va_&vasub.Ptile = 1 then va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "st");
+		   else if va_&vasub.Ptile = 2 then va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "nd");
+		   else if va_&vasub.Ptile = 3 then va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "rd");
+		   else va_&vasub.Ptl = compress(put(va_&vasub.Ptile,3.) || "th");
+		 end;
+	 end;
+	 else va_&vasub.Ptl = "";
+
+	   if pr_va_&vasub.P NE . then va_&vasub.PCT = compress(put(pr_va_&vasub.P,3.)) || " of " || compress(put(pp_va_&vasub.P,3.));
+     else va_&vasub.PCT = "";
+
+   %mend va;
+   %va(rd); %va(mt);
+ 
+            if hi_grade > 3 and hi_grade <= 8 then hi_grade2 = compress(put(hi_grade,3.)) || "th Grade ISAT Composite Exceeds %";
+	   else if hi_grade = 3 then hi_grade2 = compress(put(hi_grade,3.)) || "rd Grade ISAT Composite Exceeds %";
+	   else hi_grade2 = "";
+
+	   networkcompress=compress(NetworkDescription);
+
+   %macro metric(var);
+     %macro cy(var2);
+	   if &var.&var2 NE . then &var.&var2.t = compress(put(round(&var.&var2 ,.01),5.2)) || "%"; else &var.&var2.t = "";
+     %mend cy;
+     %cy(CY); %cy(CY_1); %cy(CY_2); %cy(CY_3); %cy(current_cyA);
+   %mend metric;
+   %metric(rd_mexcP); %metric(mt_mexcP); %metric(sc_mexcP); %metric(cp_excP); %metric(cp_hg_excP); %metric(attd); 
+
+/*
+   format rd_mexcPCY_3 rd_mexcPCY_2 rd_mexcPCY_1 rd_mexcPCY rd_mexcPcurrent_cyA percent5.2;
+*/   
+run;
+
+/*
+proc export data=el_pp_report_prep
+   outfile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\el_pp_report_prep.csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+*/
+
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output\el_pp_report_prep_&todayfm..xml"
+            options (Embedded_titles = 'no' Orientation = 'landscape' sheet_interval='none');
+
+proc report data=el_pp_report_prep nowd headskip 
+style(header)=[foreground=black background=lightgrey borderwidth=4];
+ column schlname schl_id schlid_text area_text
+        ("Probation" probation%eval(&year+1) probation%eval(&year) probation%eval(&year-1)) 
+        ("Rating" level%eval(&year+1) level%eval(&year) level%eval(&year-1))
+        ("Points" perf_policy%eval(&year+1) perf_policy%eval(&year) perf_policy%eval(&year-1))
+        ("ISAT Composite" isatcp%eval(&year) isatcp%eval(&year-1) isatcp%eval(&year-2))
+        ("Turnaround" turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2))
+        ("NCLB" ayp%eval(&year-1) fed_status state_status)
+        ("ISAT Reading" rd_mexcPCY_3t rd_mexcPCY_2t rd_mexcPCY_1t rd_mexcPCYt rd_mexcPcurrent_cyAt
+                        pts_mexc_rd_current rd_mexcPtrend_diff pts_mexc_rd_trend pts_mexc_rd)
+        ("ISAT Math" mt_mexcPCY_3t mt_mexcPCY_2t mt_mexcPCY_1t mt_mexcPCYt mt_mexcPcurrent_cyAt
+                     pts_mexc_mt_current mt_mexcPtrend_diff pts_mexc_mt_trend pts_mexc_mt)
+		("ISAT Science" sc_mexcPCY_3t sc_mexcPCY_2t sc_mexcPCY_1t sc_mexcPCYt sc_mexcPcurrent_cyAt
+                        pts_mexc_sc_current sc_mexcPtrend_diff pts_mexc_sc_trend pts_mexc_sc)
+		("ISAT Composite" cp_excPCY_3t cp_excPCY_2t cp_excPCY_1t cp_excPCYt cp_excPcurrent_cyAt
+                          pts_exc_cp_current cp_excPtrend_diff pts_exc_cp_trend pts_exc_cp)
+        ("8th Grade Composite" cp_hg_excPCY_3t cp_hg_excPCY_2t cp_hg_excPCY_1t cp_hg_excPCYt cp_hg_excPcurrent_cyAt
+                               pts_exc_cp_hg_current cp_hg_excPtrend_diff pts_exc_cp_hg_trend pts_exc_cp_hg)
+		("Adjusted Attendance Rate" attdCY_3t attdCY_2t attdCY_1t attdCYt attdcurrent_cyAt
+                                    pts_attdcurrent attdtrend_diff pts_attdtrend pts_attd)
+		("Value-Added Reading" va_rdPCY va_rdPtl va_rdPCT)
+		("Value-Added Math" va_mtPCY va_mtPtl va_mtPCT)
+        hi_grade2 unit schlname_l 
+        ("rand" networkcompress);
+
+  define  schlname / 'schlname';
+  define  schl_id / 'schl_id';
+  define  schlid_text / 'schlid_text';
+  define  area_text / 'area_text';
+  define  probation%eval(&year+1) / "probation%eval(&year+1)";
+  define  probation%eval(&year) / "probation%eval(&year)";
+  define  probation%eval(&year-1) / "probation%eval(&year)";
+  define  level%eval(&year+1) / "level%eval(&year+1)";
+  define  level%eval(&year) / "level%eval(&year)";
+  define  level%eval(&year-1) / "level%eval(&year)";
+  define  perf_policy%eval(&year+1) / "perf_policy%eval(&year+1)";
+  define  perf_policy%eval(&year) / "perf_policy%eval(&year)";
+  define  perf_policy%eval(&year-1) / "perf_policy%eval(&year)";
+  define  isatcp%eval(&year) / "isatcp%eval(&year)";
+  define  isatcp%eval(&year-1) / "isatcp%eval(&year-1)";
+  define  isatcp%eval(&year-2) / "isatcp%eval(&year-2)";
+  define  turn%eval(&year) / "turn%eval(&year)";
+  define  ayp%eval(&year-1) / "ayp%eval(&year-1)";
+  define  fed_status / 'fed_status';
+  define  state_status / 'state_status';
+  define  rd_mexcPCY_3t / 'rd_mexcPCY_3';
+  define  rd_mexcPCY_2t / 'rd_mexcPCY_2';
+  define  rd_mexcPCY_1t / 'rd_mexcPCY_1';
+  define  rd_mexcPCYt / 'rd_mexcPCY';
+  define  rd_mexcPcurrent_cyAt / 'rd_mexcPcurrent_cyA';
+  define  pts_mexc_rd_current / 'pts_mexc_rd_current';
+  define  rd_mexcPtrend_diff / 'rd_mexcPtrend_diff';
+  define  pts_mexc_rd_trend / 'pts_mexc_rd_trend';
+  define  pts_mexc_rd / 'pts_mexc_rd';
+  define  mt_mexcPCY_3t / 'mt_mexcPCY_3';
+  define  mt_mexcPCY_2t / 'mt_mexcPCY_2';
+  define  mt_mexcPCY_1t / 'mt_mexcPCY_1';
+  define  mt_mexcPCYt / 'mt_mexcPCY';
+  define  mt_mexcPcurrent_cyAt / 'mt_mexcPcurrent_cyA';
+  define  pts_mexc_mt_current / 'pts_mexc_mt_current';
+  define  mt_mexcPtrend_diff / 'mt_mexcPtrend_diff';
+  define  pts_mexc_mt_trend / 'pts_mexc_mt_trend';
+  define  pts_mexc_mt / 'pts_mexc_mt';
+  define  sc_mexcPCY_3t / 'sc_mexcPCY_3';
+  define  sc_mexcPCY_2t / 'sc_mexcPCY_2';
+  define  sc_mexcPCY_1t / 'sc_mexcPCY_1';
+  define  sc_mexcPCYt / 'sc_mexcPCY';
+  define  sc_mexcPcurrent_cyAt / 'sc_mexcPcurrent_cyA';
+  define  pts_mexc_sc_current / 'pts_mexc_sc_current';
+  define  sc_mexcPtrend_diff / 'sc_mexcPtrend_diff';
+  define  pts_mexc_sc_trend / 'pts_mexc_sc_trend';
+  define  pts_mexc_sc / 'pts_mexc_sc';
+  define  cp_excPCY_3t / 'cp_excPCY_3';
+  define  cp_excPCY_2t / 'cp_excPCY_2';
+  define  cp_excPCY_1t / 'cp_excPCY_1';
+  define  cp_excPCYt / 'cp_excPCY';
+  define  cp_excPcurrent_cyAt / 'cp_excPcurrent_cyA';
+  define  pts_exc_cp_current / 'pts_exc_cp_current';
+  define  cp_excPtrend_diff / 'cp_excPtrend_diff';
+  define  pts_exc_cp_trend / 'pts_exc_cp_trend';
+  define  pts_exc_cp / 'pts_exc_cp';
+  define  cp_hg_excPCY_3t / 'cp_hg_excPCY_3';
+  define  cp_hg_excPCY_2t / 'cp_hg_excPCY_2';
+  define  cp_hg_excPCY_1t / 'cp_hg_excPCY_1';
+  define  cp_hg_excPCYt / 'cp_hg_excPCY';
+  define  cp_hg_excPcurrent_cyAt / 'cp_hg_excPcurrent_cyA';
+  define  pts_exc_cp_hg_current / 'pts_exc_cp_hg_current';
+  define  cp_hg_excPtrend_diff / 'cp_hg_excPtrend_diff';
+  define  pts_exc_cp_hg_trend / 'pts_exc_cp_hg_trend';
+  define  pts_exc_cp_hg / 'pts_exc_cp_hg';
+  define  attdCY_3t / 'attdCY_3';
+  define  attdCY_2t / 'attdCY_2';
+  define  attdCY_1t / 'attdCY_1';
+  define  attdCYt / 'attdCY';
+  define  attdcurrent_cyAt / 'attdcurrent_cyA';
+  define  pts_attdcurrent / 'pts_attdcurrent';
+  define  attdtrend_diff / 'attdtrend_diff';
+  define  pts_attdtrend / 'pts_attdtrend';
+  define  pts_attd / 'pts_attd';
+  define  va_rdPCY / 'va_rdPCY';
+  define  va_rdPtl / 'va_rdPtl';
+  define  va_rdPCT / 'va_rdPCT';
+  define  va_mtPCY / 'va_mtPCY';
+  define  va_mtPtl / 'va_mtPtl';
+  define  va_mtPCT / 'va_mtPCT';
+  define  hi_grade2 / 'hi_grade2';
+  define  unit / 'unit';
+  define  schlname_l / 'schlname_l';
+  define  networkcompress / 'networkcompress';
+
+run;
+
+ods tagsets.ExcelXP close;

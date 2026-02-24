@@ -1,0 +1,3107 @@
+
+**********************************************************************;
+***  This job calculates the new performance                       ***;
+***  policy for High Schools.  This is a job to create the         ***;
+***  an excel file of units and their performance data.            ***;
+***                                                                ***;
+***  The job is located under:                                     ***;
+***  /cps/dept_projects/performance_policy/                        ***;
+***                       create_performance_policy_high_2012.sas  ***;
+***  Created by: Hillel Morris                                     ***;
+***  Date: June 2nd, 2008                                          ***;
+**** Taken over by Andrea Ross on Oct 30, 2008                       ***;
+**** Revisions made by Ryan on 11/24/2008                            ***;   
+************************************************************************;
+************************************************************************;
+*** CHANGE LOG                                                       ***;
+*** DATE         NAME             LABEL  COMMENT                     ***;
+*** 10-08-2008   Hillel Morris      A1   No 2008 data for ontrack    ***;
+***                                      or drop out so use 2004     ***;
+***                                      thru 2007 data              ***;
+***                                                                  ***;
+*** 10-16-2009   Hillel Morris      A2   Due to issues with          ***;
+***                                      master file there were      ***;
+***                                      changes that needed to be   ***;
+***                                      made to the 1 yr drop out   ***;
+***                                      and to the ap enroll        ***;
+***                                      BEFORE RUNNING 2010 DATA    ***;
+***                                      DETERMINE IF AP_ENROLL      ***;
+***                                      AND 1YR DROP OUT TABLE      ***;
+***                                      WERE FIXED                  ***;  
+***                                                                  ***;
+*** 10-18-2010   Hillel Morris      A3   Prepare for 2011 run        ***;
+***                                                                  ***;
+*** 09-06-2011   Hillel Morris      A4   Prepare for 2012 run        ***;
+***                                                                  ***;
+*** 09-08-2011   Hillel Morris      A5   Change AP to APIB data      ***;
+***                                                                  ***;
+*** 10-03-2011   Hillel Morris      A6   Per Ryan email 9-27-2011    ***;
+***                                      CICS-Northtown recently     ***;     
+***                                      submitted an attendance     ***;   
+***                                      rate of 96.1% for 2011      ***;   
+***                                      that should be used in      ***;   
+***                                      both the high school        ***;   
+***                                      Performance Policy report   ***;   
+***                                      and the ONS Performance     ***;   
+***                                      Report                      ***;   
+***                                                                  ***;
+*** 05-28-2013   Hillel Morris      A7   Rerun for charter schools   ***;
+***                                      a) Air Force Attendadnce    ***;
+***                                      b) Freshman on Track for    ***;
+***                                          CICS - Longwood         ***;
+***                                          Urban Prep - Englewood  ***;
+***                                          Urban Prep - West       ***;
+***                                          Urban Prep - Bronzeville **;
+***                                          Noble Street - Johnson  ***;
+***                                                                  ***;
+*** 08-20-2011   Hillel Morris          Change APIB to APIBEC data   ***;
+
+libname hsppol '\\admin\deptdata\CEO\OA\PDP\performance_policy\2014-2015 policy\output';
+libname pryrdata '\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2013\output';
+libname ppadjatd "F:\SASFiles\Accountability\Performance_Policy\2014\output";
+libname apibec '\\co-sas01.csc.cps.k12.il.us\dept_projects\apib_metric\2013\program';
+libname sybase '\\admin\deptdata\Information Technology Services\APPSVC\APPSVC-ANALTICS\SAS\Data Management\SybaseBackups\SLVL';
+
+**libname fotchart "/cps/dept_projects/on_track/2010/charters";
+**libname ap_chart "/cps/dept_projects/ap_charter/sasdata";
+**libname psaedata "/cps/dept_projects/psae/reporting/2011/excel/final_data/create_psae_final_datasets/sasdata";
+
+options source2 msgLevel=i symbolgen mprint mlogic center nodate nonumber nodate pageno=1 ls=250 ps=60;
+
+/* Do we want to show proc prints */
+%let proc = **;
+
+/* Year we are looking at */
+%let year = 2014;
+
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take todays date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today                                             **;
+
+data _null_;
+
+    call symput('todayfm',substr(put(today(),mmddyy10.),7,4)||
+                          substr(put(today(),mmddyy10.),1,2)||
+                          substr(put(today(),mmddyy10.),4,2)
+                ); 
+
+    call symput('schlyear',"%eval(&year-1)-&year");
+run;
+
+
+**********************************************************************;
+***  These are the standard cutoffs for compensation points.       ***;
+***  This will allow for easy changing of cutoffs                  ***;
+
+/* performance policy cut points */
+%let pp_level_cp1 = 66.7;
+%let pp_level_cp2 = 44;
+
+/* principal evaluation range */
+%let prin_eval_cp = 54; /* Greater than or equal */
+
+/* current desc cut points */
+%let current_desc_cp1 = 66.7;
+%let current_desc_cp2 = 44;
+
+/* Trendandgrowth_desc cut points */
+%let trendandgrowth_desc_cp1 = 66.7;
+%let trendandgrowth_desc_cp2 = 44;
+
+
+/* Rd_current_desc cut points */
+%let rd_current_desc_cp1 = 41.6;
+%let rd_current_desc_cp2 = 21.6;
+
+/* Rd_trendandgrowth_desc cut points */
+%let rd_trendandgrowth_desc_cp1 = 66.7;
+%let rd_trendandgrowth_desc_cp2 = 44;
+
+
+/* mt_current_desc cut points */
+%let mt_current_desc_cp1 = 39.7;
+%let mt_current_desc_cp2 = 19.7;
+
+/* mt_trendandgrowth_desc cut points */
+%let mt_trendandgrowth_desc_cp1 = 66.7;
+%let mt_trendandgrowth_desc_cp2 = 44;
+
+
+/* sc_current_desc cut points */
+%let sc_current_desc_cp1 = 35.0;
+%let sc_current_desc_cp2 = 15.0;
+
+/* sc_trendandgrowth_desc cut points */
+%let sc_trendandgrowth_desc_cp1 = .6667;
+
+/* minimun count to use metric */
+%let min_count = 10;
+
+/* Average ACT Improvement Points */
+%let actA_current_cp3 = 20;  %let actA_current_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let actA_current_cp2 = 18;  %let actA_current_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let actA_current_cp1 = 16;  %let actA_current_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let actA_trend_cp3 = 1.0;  %let actA_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let actA_trend_cp2 = 0.5;  %let actA_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let actA_trend_cp1 = 0.1;  %let actA_trend_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let actA_auto = 23;  /* Automatic Rule */
+
+/* One Year Drop-out Improvement Points */
+%let dropP_current_cp3 = 2;   %let dropP_current_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let dropP_current_cp2 = 6;   %let dropP_current_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let dropP_current_cp1 = 10;  %let dropP_current_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let dropP_trend_cp3 = - 3.0;  %let dropP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let dropP_trend_cp2 = - 1.0;  %let dropP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let dropP_trend_cp1 = - 0.1;  %let dropP_trend_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let dropP_auto = 0.5;  /* Automatic Rule */
+
+/* Freshman On Track Improvement Points */
+%let ontrackP_current_cp3 = 80;  %let ontrackP_current_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let ontrackP_current_cp2 = 60;  %let ontrackP_current_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let ontrackP_current_cp1 = 45;  %let ontrackP_current_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let ontrackP_trend_cp3 = 5.0;  %let ontrackP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let ontrackP_trend_cp2 = 2.5;  %let ontrackP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let ontrackP_trend_cp1 = 0.1;  %let ontrackP_trend_pr1 = 1;  /* 1st Cut Point - Greater than */
+%let ontrackP_auto = 90;  /* Automatic Rule */
+
+/* Attendance Improvement Points */
+%let attd_current_cp3 = 95; %let attd_current_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let attd_current_cp2 = 90; %let attd_current_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let attd_current_cp1 = 85; %let attd_current_pr1 = 1; /* 1st Cut Point - Greater than */
+%let attd_trend_cp3 = 1.0; %let attd_trend_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let attd_trend_cp2 = 0.5; %let attd_trend_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let attd_trend_cp1 = 0.1; %let attd_trend_pr1 = 1; /* 1st Cut Point - Greater than */
+%let attd_auto = 95;  /* Automatic Rule */
+
+/* AP IB Enrollment Improvement Points */
+%let apibec_enrollP_trend_cp3 = 5.0; %let apibec_enrollP_trend_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let apibec_enrollP_trend_cp2 = 2.5; %let apibec_enrollP_trend_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let apibec_enrollP_trend_cp1 = 0.1; %let apibec_enrollP_trend_pr1 = 1; /* 1st Cut Point - Greater than */
+%let apibec_enrollP_auto = 35;  /* Automatic Rule */
+
+/* AP IB Success Improvement Points */
+%let apibec_successP_trend_cp3 = 3.0; %let apibec_successP_trend_pr3 = 3; /* 3rd Cut Point - Greater than or equal */
+%let apibec_successP_trend_cp2 = 1.0; %let apibec_successP_trend_pr2 = 2; /* 2nd Cut Point - Greater than or equal */
+%let apibec_successP_trend_cp1 = 0.1; %let apibec_successP_trend_pr1 = 1; /* 1st Cut Point - Greater than */
+%let apibec_successP_auto = 90;  /* Automatic Rule */
+
+/* PSAE Reading Improvement points - Meet Exceed */
+%let rd_mexcP_current_cp3 = 70; %let rd_mexcP_current_pr3 = 1.0000;  /* 3rd Cut Point - Greater than or equal */
+%let rd_mexcP_current_cp2 = 50; %let rd_mexcP_current_pr2 = 0.6667;  /* 2nd Cut Point - Greater than or equal */
+%let rd_mexcP_current_cp1 = 30; %let rd_mexcP_current_pr1 = 0.3333;  /* 1st Cut Point - Greater than */
+%let rd_mexcP_trend_cp3 = 5.0; %let rd_mexcP_trend_pr3 = 1.0000;  /* 3rd Cut Point - Greater than or equal */
+%let rd_mexcP_trend_cp2 = 2.5; %let rd_mexcP_trend_pr2 = 0.6667;  /* 2nd Cut Point - Greater than or equal */
+%let rd_mexcP_trend_cp1 = 0.1; %let rd_mexcP_trend_pr1 = 0.3333;  /* 1st Cut Point - Greater than */
+%let rd_mexcP_auto = 90;  /* Automatic Rule */
+
+/* PSAE Math Improvement points - Meet Exceed */
+%let mt_mexcP_current_cp3 = 70; %let mt_mexcP_current_pr3 = 1.0000;  /* 3rd Cut Point - Greater than or equal */
+%let mt_mexcP_current_cp2 = 50; %let mt_mexcP_current_pr2 = 0.6667;  /* 2nd Cut Point - Greater than or equal */
+%let mt_mexcP_current_cp1 = 30; %let mt_mexcP_current_pr1 = 0.3333;  /* 1st Cut Point - Greater than */
+%let mt_mexcP_trend_cp3 = 5.0; %let mt_mexcP_trend_pr3 = 1.0000;  /* 3rd Cut Point - Greater than or equal */
+%let mt_mexcP_trend_cp2 = 2.5; %let mt_mexcP_trend_pr2 = 0.6667;  /* 2nd Cut Point - Greater than or equal */
+%let mt_mexcP_trend_cp1 = 0.1; %let mt_mexcP_trend_pr1 = 0.3333;  /* 1st Cut Point - Greater than */
+%let mt_mexcP_auto = 90;  /* Automatic Rule */
+
+/* PSAE Science Improvement points - Meet Exceed */
+%let sc_mexcP_current_cp3 = 70; %let sc_mexcP_current_pr3 = 1.0000;  /* 3rd Cut Point - Greater than or equal */
+%let sc_mexcP_current_cp2 = 50; %let sc_mexcP_current_pr2 = 0.6667;  /* 2nd Cut Point - Greater than or equal */
+%let sc_mexcP_current_cp1 = 30; %let sc_mexcP_current_pr1 = 0.3333;  /* 1st Cut Point - Greater than */
+%let sc_mexcP_trend_cp3 = 5.0; %let sc_mexcP_trend_pr3 = 1.0000;  /* 3rd Cut Point - Greater than or equal */
+%let sc_mexcP_trend_cp2 = 2.5; %let sc_mexcP_trend_pr2 = 0.6667;  /* 2nd Cut Point - Greater than or equal */
+%let sc_mexcP_trend_cp1 = 0.1; %let sc_mexcP_trend_pr1 = 0.3333;  /* 1st Cut Point - Greater than */
+%let sc_mexcP_auto = 90;  /* Automatic Rule */
+
+/* EPAS Gains Reading Improvement Points */
+%let epas_rdP_trend_cp3 = 85;  %let epas_rdP_trend_pr3 = 3;  /* 3rd Cut Point - Greater than or equal */
+%let epas_rdP_trend_cp2 = 50;  %let epas_rdP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let epas_rdP_trend_cp1 = 15;  %let epas_rdP_trend_pr1 = 1;  /* 1st Cut Point - Greater than or equal */
+
+/* EPAS Gains Math Improvement Points */
+%let epas_mtP_trend_cp3 = 85;  %let epas_mtP_trend_pr3 = 3;  /* 3mt Cut Point - Greater than or equal */
+%let epas_mtP_trend_cp2 = 50;  %let epas_mtP_trend_pr2 = 2;  /* 2nd Cut Point - Greater than or equal */
+%let epas_mtP_trend_cp1 = 15;  %let epas_mtP_trend_pr1 = 1;  /* 1st Cut Point - Greater than or equal */
+
+******************************************************;
+***  Time to bring in the data we will need        ***;
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  create table schools_a as
+  Select * from connection to odbc 
+  (SELECT '2014-2015' as school_year
+      ,cast(school_hr_id as int) as unit
+      ,cast(SCHOOL_CODE as int) as schl_id
+      ,school_short_name as schlname 
+      ,SCHOOL_GRADES_GROUP as eh_ind
+      ,SCHOOL_TYPE as schltype
+      ,SCHOOL_NAME as schlname_l
+      ,FACILITY_ADDRESS as address 
+      ,FACILITY_POSTAL_CODE as zipcode
+      ,FACILITY_POSTAL_ROUTE as mailrun_x
+      ,'' as FY11_area
+      ,'' as NetworkNumber
+      ,SCHOOL_SUBGROUP as NetworkDescription
+      ,right(SCHOOL_STATE_ID,4) as statunit
+	  ,SCHOOL_STATUS
+
+
+  FROM [K12INTEL_DW].[DTBL_SCHOOLS] S
+  left join [K12INTEL_DW].[DTBL_FACILITIES] F
+     on S.FACILITIES_KEY = F.FACILITIES_KEY
+  where 1=1
+    and school_hr_id not in ('@ERR','--','Future State','Not Reported','Unknown','Not Applicable')
+
+  union
+
+  SELECT school_year 
+      ,cast(school_hr_id as int) as unit
+      ,cast(SCHOOL_CODE as int) as schl_id
+      ,school_short_name as schlname 
+      ,SCHOOL_GRADES_GROUP as eh_ind
+      ,SCHOOL_TYPE as schltype
+      ,SCHOOL_NAME as schlname_l
+      ,FACILITY_ADDRESS as address 
+      ,FACILITY_POSTAL_CODE as zipcode
+      ,FACILITY_POSTAL_ROUTE as mailrun_x
+      ,'' as FY11_area
+      ,'' as NetworkNumber
+      ,SCHOOL_SUBGROUP as NetworkDescription
+      ,right(SCHOOL_STATE_ID,4) as statunit
+	  ,SCHOOL_STATUS
+
+
+  FROM [K12INTEL_DW].[DTBL_SCHOOL_ANNUAL_ATTRIBS] S
+  left join [K12INTEL_DW].[DTBL_FACILITIES] F
+     on S.FACILITIES_KEY = F.FACILITIES_KEY
+  where 1=1
+    and school_hr_id not in ('@ERR','--','Future State','Not Reported','Unknown','Not Applicable')
+    and school_year >= '2011-2012'
+);
+
+Disconnect from odbc; 
+quit;
+run;
+
+proc sort data=schools_a; by schl_id school_year;
+
+data schools;
+  set schools_a; by schl_id school_year;
+    
+      length mailrun 8.;
+      if compress(mailrun_x)='@ERR' then mailrun = .; else mailrun=mailrun_x;
+	  drop mailrun_x;
+
+      if unit not in (453,959);
+
+      if last.schl_id;
+
+/* if schl_id in (400022,400036); */
+run;
+
+proc freq data= schools;
+where schltype in ('Contract','Charter');
+    table SCHOOL_STATUS*NetworkDescription;
+run;
+
+/*
+proc export data=schools
+   outfile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\schools_listing_for_Jeff_Broom_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+proc freq data= schools;
+    table schltype*NetworkDescription;
+run;
+*/
+proc sql;
+create table dup_unit as
+(select unit, count(*)
+  from schools
+  group by unit
+having count(*) > 1);
+run;
+
+proc print data=dup_unit;
+
+
+proc sql;
+create table dup_schl_id as
+(select schl_id, count(*)
+  from schools
+  group by schl_id
+having count(*) > 1);
+run;
+
+proc print data=dup_schl_id;
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+
+  create table racedemo_a as
+  Select * from connection to odbc 
+  (SELECT cast(school_hr_id as int) as unit
+         ,cast(dtbl_students.student_current_grade_code as int) as grade
+         ,Count(Distinct dtbl_students.student_key) as total
+     FROM K12INTEL_DW.DTBL_STUDENTS WITH (NOLOCK)
+   INNER JOIN K12INTEL_DW.DTBL_SCHOOLS WITH (NOLOCK) 
+      ON DTBL_STUDENTS.SCHOOL_KEY = DTBL_SCHOOLS.SCHOOL_KEY 
+   INNER JOIN K12INTEL_DW.DTBL_STUDENT_DETAILS WITH (NOLOCK) 
+      ON DTBL_STUDENT_DETAILS.STUDENT_KEY = DTBL_STUDENTS.STUDENT_KEY
+   inner join k12intel_userdata.xtbl_domain_decodes domain_grade_code WITH (NOLOCK) 
+      on domain_grade_code.domain_code = dtbl_students.student_current_grade_code 
+     and domain_grade_code.domain_name = 'Grade Code'
+   WHERE(STUDENT_ACTIVITY_INDICATOR = 'ACTIVE')
+     /*AND (dtbl_schools.school_subgroup IN ('ES Network - Austin-North Lawndale', 'ES Network - Burnham Park', 'ES Network - Englewood-Gresham', 'ES Network - Fullerton', 'ES Network - Fulton', 'ES Network - Garfield-Humboldt', 'ES Network - Lake Calumet', 'ES Network - Midway', 'ES Network - O''Hare', 'ES Network - Pershing', 'ES Network - Pilsen-Little Village', 'ES Network - Ravenswood-Ridge', 'ES Network - Rock Island', 'ES Network - Skyway', 'HS Network - Far South Side', 'HS Network - North-Northwest Side', 'HS Network - South Side', 'HS Network - Southwest Side', 'HS Network - West Side', 'Network - Alternative', 'Network - AUSL', 'Network - Charter/Contract'))*/
+     and dtbl_students.student_current_grade_code in ('3','4','5','6','7','8','9','10','11','12')
+   GROUP BY school_hr_id
+           ,domain_sort
+           ,dtbl_students.student_current_grade_code
+   ORDER BY school_hr_id
+           ,domain_sort
+           ,dtbl_students.student_current_grade_code
+  );
+
+
+
+  create table psae_act_a as
+  Select * from connection to odbc (
+     SELECT yr, unit, compactss_m as actA, compactss_tt as act_tt, 
+                 rd_mexcP, mt_mexcP, sc_mexcP, cp_mexcP, rd_tt, mt_tt, sc_tt, cp_tt
+      FROM K12INTEL_STAGING_REA.psae_sch
+     where yr between (&year - 4) and &year
+       and cat = 'all'
+    );
+
+Disconnect from odbc; 
+quit;
+run;
+
+
+proc SQL;
+  Connect to odbc(datasrc="DW_REA_Archive"); 
+
+  create table epas_a as
+  Select * from connection to odbc (
+     SELECT unit, read_n as epas_rdNCY, math_n as epas_mtNCY, read_p as epas_rdPCY, math_p as epas_mtPCY
+      FROM K12INTEL_STAGING_REA_SLVL.epas_sch
+     where yr = &year - 1 /*2012*/
+       and test = 'all'
+       and cat = 'all' 
+     );
+
+  Disconnect from odbc; 
+  quit;
+  run;
+
+proc sql;
+  create table drop_a as
+     (SELECT yr, unit, pdrp_tot as dropP, totmemb as dropN
+      FROM sybase.drop1yr_150dayrule_sch
+     where yr between (&year - 4) and (&year) /* 2010 - 2013 */
+       and pdgroup = 'noprevdr'
+       and cat = 'all'
+     );
+run ;
+
+
+
+%macro skip;
+
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+
+  create table psae_act_a as
+  Select * from connection to odbc (
+     SELECT yr, unit, compactss_m as actA, compactss_tt as act_tt, 
+                 rd_mexcP, mt_mexcP, sc_mexcP, cp_mexcP, rd_tt, mt_tt, sc_tt, cp_tt
+      FROM K12INTEL_STAGING_REA.psae_sch
+     where yr between (&year - 4) and &year
+       and cat = 'all'
+    );
+
+  Disconnect from odbc; 
+  quit;
+  run;
+
+
+*************************************;
+** Get best DropP possible - Begin **;
+
+%macro drop(var1,var2);
+PROC SQL;
+Connect to sybase
+(user=hmorris password=HJM118e server='RESEARCH' database='SLVL');
+
+  create table drop_&var1._a as
+   select * from connection to sybase
+     (SELECT yr, unit, pdrp_tot as &var1._dropP, totmemb as &var1._dropN
+      FROM dbo.drop1yr_150dayrule_sch
+     where yr between 2010 and 2013
+       and pdgroup = &var2
+       and cat = 'all'
+	   and totmemb >= 10
+	   order by unit, yr
+     );
+Disconnect from sybase;
+quit;
+run;
+
+%mend drop;
+%drop(all,'all');
+%drop(noprevdr,'noprevdr');
+
+data drop_a (keep= yr unit dropP dropN);
+   merge drop_noprevdr_a (in=in_a) drop_all_a (in=in_b); by unit yr;
+
+   length better $20.;
+        if noprevdr_dropP = all_dropP then do;
+            dropP =  noprevdr_dropP;
+            dropN =  noprevdr_dropN;
+		end;
+   else if noprevdr_dropP < all_dropP then do;
+            dropP =  noprevdr_dropP;
+            dropN =  noprevdr_dropN;
+		end;
+   else if noprevdr_dropP > all_dropP then do;
+            dropP =  all_dropP;
+            dropN =  all_dropN;
+		end;
+   else do;
+            dropP =  noprevdr_dropP;
+            dropN =  noprevdr_dropN;
+		end;
+run;
+
+** Get best DropP possible - End **;
+*************************************;
+%mend skip;
+
+proc sort data=schools; by schl_id;
+
+proc sql;
+create table schools_dup as
+(select unit, count(*)
+   from schools
+  group by unit
+  having count(*) > 1);
+
+title1 'Duplicate School Records';
+proc print data=schools_dup;
+run; 
+
+*******************************************************************************;
+*** Bring in previous years hs performance policy to get some needed data  **;
+data perf_policy_2013_a;
+   set pryrdata.perform_policy_hs_20130613;
+run;
+
+***********************************************************;
+*** Bring in Charter School FOT and AP Suppression List  **;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\input\Charter_AP_FOT_2012_OptIn_List.csv" 
+      out= charter_FOT_AP_OptIn_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+data charter_FOT_AP_OptIn_b; 
+  set charter_FOT_AP_OptIn_a;
+	   
+    rename School_ID = schl_id;
+
+run;
+
+proc sort data=charter_FOT_AP_OptIn_b; by schl_id;
+proc sort data=schools; by schl_id;
+
+data charter_FOT_AP_OptIn_c (keep = unit schl_id schlname AP_OptIn FOT_OptIn);
+  merge charter_FOT_AP_OptIn_b (in=Opt_file) schools; by schl_id;
+    /* if Opt_file; */
+
+    if compress(upcase(schltype)) in ('CONTRACT','CHARTER');
+
+       %macro OptIn(var);
+	      length &var._OptIn $3.;
+              if upcase(&var._2012) = 'YES' then &var._OptIn = 'Yes';
+  	     else &var._OptIn = 'No';
+	  %mend OptIn;
+	  %OptIn(FOT); %OptIn(AP);
+
+	  
+    if schl_id in (400022,400036) then do;
+        FOT_OptIn = 'YES';
+		AP_OptIn = 'YES';
+	end;
+
+run;
+
+proc sort data=charter_FOT_AP_OptIn_c; by schlname;
+proc print data=charter_FOT_AP_OptIn_c;
+
+
+*** Bring in Charter School FOT and AP Suppression List  **;
+***********************************************************;
+
+************************************;
+** apibec DATA SECTION - BEGINS     **;
+
+************************************************************;
+*** Get apibec Data                                         **;
+
+
+%macro skip;
+data apibec_enroll_success_20102012 (keep = yr schl_id enroll_n apibec_enroll_n  apibec_enrollP apibec_successP);
+  set perf_policy_2013_a;
+
+            yr=2010;
+            enroll_n = enroll_nCY_2;
+	        apibec_enroll_n = apib_enroll_nCY_2;
+   	        apibec_enrollP = apib_enrollPCY_2;
+            apibec_successP = apib_successPCY_2;
+            output apibec_enroll_success_20102012;     
+
+            yr=2011;
+            enroll_n = enroll_nCY_1;
+	        apibec_enroll_n = apib_enroll_nCY_1;
+   	        apibec_enrollP = apib_enrollPCY_1;
+            apibec_successP = apib_successPCY_1;
+            output apibec_enroll_success_20102012;
+
+            yr=2012;
+            enroll_n = enroll_nCY;
+	        apibec_enroll_n = apib_enroll_nCY;
+   	        apibec_enrollP = apib_enrollPCY;
+            apibec_successP = apib_successPCY;
+            output apibec_enroll_success_20102012;
+run;
+%mend skip;
+
+data apibec_enroll_success_20102012_a;
+   set apibec.apibec_metric_2010
+       apibec.apibec_metric_2011
+       apibec.apibec_metric_2012;
+     
+     if schlid = 999999 then delete;
+
+     rename schlid = schl_id
+            enroll_0912 = enroll_n
+	        enroll_num = apibec_enroll_n 
+			enroll_pct = apibec_enrollP
+            success_pct = apibec_successP;
+run;
+
+proc sort data=apibec_enroll_success_20102012_a; by schl_id;
+proc sort data=schools; by schl_id;
+
+data apibec_enroll_success_20102012 (keep = yr schl_id enroll_n apibec_enroll_n  apibec_enrollP apibec_successP);
+  merge apibec_enroll_success_20102012_a (in=in_ap) schools; by schl_id;
+    
+      if in_ap;
+	    
+	      if upcase(trim(schltype)) = 'CHARTER' and apibec_enroll_n < 6 then do; 
+                   apibec_enrollP = .;
+				   enroll_n = .;
+		  end;
+run;
+
+/*
+proc print data=apibec_enroll_success_20102012_a; where schl_id = 400087; 
+proc print data=apibec_enroll_success_20102012; where schl_id = 400087;
+*/
+
+data apibec_2013_reg_a;
+   set apibec.apibec_metric_2013;
+     
+     if schlid = 999999 then delete;
+
+     rename schlid = schl_id
+            enroll_0912 = enroll_n_reg
+	        enroll_num = apibec_enroll_n_reg
+			enroll_pct = apibec_enrollP_reg
+            success_pct = apibec_successP_reg;
+run;
+
+*****************************************;
+*** Get Charter school 2013 AP data    **;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\input\ap_charter_20130923.csv"
+      out= ap_2013_chart_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+proc sort data=ap_2013_chart_a; by schl_id;
+proc sort data=schools; by schl_id;
+
+data ap_2013_chart_b (keep = yr schlname schl_id enroll_n_chart apibec_enroll_n_chart apibec_enrollP_chart apibec_successP_chart)
+     chart_ap_missing_schl_id;     
+  merge ap_2013_chart_a (in=in_chart) schools (in=in_schools); by schl_id;
+
+       if in_chart and in_schools then do;
+	      yr = 2013;
+		  enroll_n_chart = enrollment;
+	      apibec_enroll_n_chart = ap_participation;
+		  apibec_enrollP_chart = ap_participation_pct;
+          apibec_successP_chart = ap_success_pct;
+		  output ap_2013_chart_b;
+       end;
+  else if in_chart and not in_schools then output chart_ap_missing_schl_id;
+  else delete;
+run;
+
+title1 'Missing Schl ID for 2013 Charter AP';
+Proc print data = chart_ap_missing_schl_id;
+run;
+
+proc sort data=ap_2013_chart_b; by yr schl_id;
+proc sort data=apibec_2013_reg_a; by yr schl_id;
+
+data ap_2013_a (keep = yr schl_id 
+                       enroll_n_reg apibec_enroll_n_reg apibec_enrollP_reg apibec_successP_reg
+                       enroll_n_chart apibec_enroll_n_chart apibec_enrollP_chart apibec_successP_chart);
+  merge ap_2013_chart_b apibec_2013_reg_a; by yr schl_id;
+run;
+ 
+proc sort data=schools; by schl_id;
+
+data apibec_enroll_success_2013 (keep = yr schlname schl_id enroll_n apibec_enroll_n apibec_enrollP apibec_successP)
+     ap_2013_dup (keep = yr schlname schl_id enroll_n_reg apibec_enroll_n_reg apibec_enrollP_reg apibec_successP_reg
+                                             enroll_n_chart apibec_enroll_n_chart apibec_enrollP_chart apibec_successP_chart);
+  merge ap_2013_a (in=in_ap) schools; by schl_id;
+
+     if in_ap;
+
+          if apibec_enroll_n_chart NE . and apibec_enroll_n_reg < 10  then do;
+			 enroll_n = enroll_n_chart;
+             apibec_enroll_n = apibec_enroll_n_chart;
+             apibec_enrollP = apibec_enrollP_chart;
+             apibec_successP = apibec_successP_chart;
+             output apibec_enroll_success_2013;
+          end;
+     else if apibec_enroll_n_chart = . and apibec_enroll_n_reg NE .  then do;
+			 enroll_n = enroll_n_reg;
+             apibec_enroll_n = apibec_enroll_n_reg;
+             apibec_enrollP = apibec_enrollP_reg;
+             apibec_successP = apibec_successP_reg;
+             output apibec_enroll_success_2013;
+          end;
+     else if apibec_enroll_n_chart NE . and apibec_enroll_n_reg NE .  then do;
+             output ap_2013_dup;
+          end;
+     else if enroll_n_chart = . and enroll_n_reg = .  then delete;
+     else output ap_2013_dup;
+run;
+
+title1 'AP 2013 Dup';
+proc print data=ap_2013_dup;
+run;
+
+data apibec_enroll_success_20102013;
+  set apibec_enroll_success_20102012
+      apibec_enroll_success_2013;
+
+proc sort data = apibec_enroll_success_20102013; by schl_id;
+
+data apibec_enroll_success_a1 (keep = yr unit enroll_n apibec_enroll_n apibec_enrollP apibec_successP)
+     apibec_enr_success_missing_unit (keep = yr unit schl_id schlname schltype 
+                                                 enroll_n apibec_enroll_n apibec_enrollP apibec_successP);
+  merge apibec_enroll_success_20102013 (in=in_apibec) schools; by schl_id;
+
+   if in_apibec;
+
+        if unit = . then output apibec_enr_success_missing_unit;
+   else output apibec_enroll_success_a1;
+
+run;
+
+proc sort data=apibec_enr_success_missing_unit; by schl_id yr;
+title1 'APIBEC - Missing Unit number';
+proc print data=apibec_enr_success_missing_unit noobs;
+where unit=.;
+run;
+
+proc sort data=apibec_enroll_success_a1; by unit;
+proc sort data=charter_FOT_AP_OptIn_c; by unit;
+
+data apibec_enroll_success_a (keep = yr unit enroll_n apibec_enroll_n apibec_enrollP apibec_successP);
+  merge apibec_enroll_success_a1 (in=in_AP) charter_FOT_AP_OptIn_c; by unit;
+
+   if in_AP;
+
+     if AP_OptIn = 'No' then do;
+	    enroll_n = .; 
+        apibec_enroll_n = .; 
+        apibec_enrollP  = .;
+        apibec_successP = .;
+     end;
+run;
+
+** APIBEC DATA SECTION - ENDS       **;
+************************************;
+
+*************************************************;
+** FRESHMAN ON TRACK DATA SECTION - BEGINS     **;
+
+data ontrack_20102012 (keep = yr unit ontrackT ontrackP);
+  set perf_policy_2013_a;
+
+            yr=2010;
+            ontrackT = ontrackTCY_2;
+            ontrackP = ontrackPCY_2;
+            output ontrack_20102012;     
+
+            yr=2011;
+            ontrackT = ontrackTCY_1;
+            ontrackP = ontrackPCY_1;
+            output ontrack_20102012;     
+
+            yr=2012;
+            ontrackT = ontrackTCY;
+            ontrackP = ontrackPCY;
+            output ontrack_20102012;     
+
+%macro skip;
+*******************************************************************************************************************************;
+*** Get Freshman on Track Data                                                                                               **;
+*** Data was placed in SAS EG Accountability\Data\Metrics2013                                                                **;
+*** Copied On track excel file to                                                                                            **;
+*** \\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2013\input\original_files\ontrack_allschools_20130808.xls  **;
+*** Copied and massaged data to imported file below                                                                          **;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\input\ontrack_allschools_20130808.csv" 
+      out= ontrack_20102013_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+data ontrack_2013_reg_a (keep = yr unit ontrackT_reg ontrackP_reg);
+   set ontrack_20102013_a;
+
+            yr=2013;
+            ontrackT_reg = ontrackT2013;
+            ontrackP_reg = ontrackP2013;
+            output ontrack_2013_reg_a;     
+run;
+
+proc print data=ontrack_2013_reg_a ;
+**where schl_id = 609679;
+where unit = 1070;
+%mend skip;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\input\compare_ontrack_rates_v2.csv" 
+      out= ontrack_20102013_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+proc sort data=ontrack_20102013_a (drop=schlname); by schl_id;
+proc sort data=schools; by schl_id;
+
+data ontrack_2013_reg_a (keep = yr schlname unit ontrackT_reg ontrackP_reg)
+     reg_missing_schl_id;     
+  merge ontrack_20102013_a (in=in_reg) schools (in=in_schools); by schl_id;
+
+       if in_reg and in_schools then do;
+	      yr = 2013;
+	      ontrackT_reg=ontrackT2013;
+		  ontrackP_reg=ontrackP2013;
+		  output ontrack_2013_reg_a;
+       end;
+  else if in_reg and not in_schools then output reg_missing_schl_id;
+  else delete;
+run;
+
+title1 'Missing Schl ID for 2013 Regular Ontrack';
+Proc print data = reg_missing_schl_id;
+run;
+
+
+***********************************************;
+*** Get Charter school 2013 On track data    **;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\input\ontrack_charter_20130918.csv"
+      out= ontrack_2013_chart_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+proc sort data=ontrack_2013_chart_a; by schl_id;
+proc sort data=schools; by schl_id;
+
+data ontrack_2013_chart_b (keep = yr schlname unit ontrackT_charter ontrackP_charter)
+     chart_missing_schl_id;     
+  merge ontrack_2013_chart_a (in=in_chart) schools (in=in_schools); by schl_id;
+
+       if in_chart and in_schools then do;
+	      yr = 2013;
+	      ontrackT_charter=ontrack_ct;
+		  ontrackP_charter=ontrack_pct;
+		  output ontrack_2013_chart_b;
+       end;
+  else if in_chart and not in_schools then output chart_missing_schl_id;
+  else delete;
+run;
+
+title1 'Missing Schl ID for 2013 Charter Ontrack';
+Proc print data = chart_missing_schl_id;
+run;
+
+proc sort data=ontrack_2013_chart_b; by yr unit;
+proc sort data=ontrack_2013_reg_a; by yr unit;
+
+data ontrack_2013_a (keep = yr unit ontrackT_reg ontrackP_reg ontrackT_charter ontrackP_charter);
+  merge ontrack_2013_chart_b ontrack_2013_reg_a; by yr unit;
+run;
+ 
+proc sort data=schools; by unit;
+
+data ontrack_2013 (keep = yr unit ontrackT ontrackP)
+     ontrack_2013_dup (keep = yr schlname unit ontrackT_reg ontrackP_reg ontrackT_charter ontrackP_charter);
+  merge ontrack_2013_a (in=in_ontrack) schools; by unit;
+
+     if in_ontrack;
+
+          if ontrackT_charter NE . and ontrackT_reg = .  then do;
+             ontrackT = ontrackT_charter;
+             ontrackP = ontrackP_charter;
+             output ontrack_2013;
+          end;
+     else if ontrackT_charter = . and ontrackT_reg NE . then do;
+             ontrackT = ontrackT_reg;
+             ontrackP = ontrackP_reg;
+             output ontrack_2013;
+          end;
+     else if ontrackT_charter NE . and ontrackT_reg NE .  then do;
+             output ontrack_2013_dup;
+          end;
+     else if ontrackT_charter = . and ontrackT_reg = .  then delete;
+     else output ontrack_2013_dup;
+run;
+
+title1 'On Track 2013 Dup';
+proc print data=ontrack_2013_dup;
+run;
+
+********************************************************************************;
+*** Already got current year's data Freshman on Track Data from SYBASE        **;
+*** Now put our ontrack data together                                         **;
+
+ /** 2013-06-13
+     Per Ryan, need to do one final run of performance policy with following changes:
+        1) Include Austin Business (unit 7020 - School ID 40018) FOT rate for 2012 
+           (missing due to mix up of it being a contract school or not being a contract school.  Asher sent rate in email on May 30th Rate is 80.6)
+        2) Remove Women's Young leadership Ontrack score. (Renewed contract with them.  After which received FOT score that lowered them to Level 3 from Level 2.  
+           Can not have level at 3, and can not break contract so excluding FOT score).
+
+
+data ontrack_austin_2012_a (keep = yr unit ontrackT ontrackP);
+    unit = 7020;
+    yr = 2012;
+    ontrackT = 67; 
+    ontrackP = 80.6;
+    output;
+run; 
+    **/
+data ontrack_20102013 (keep = yr unit ontrackT ontrackP);
+  set ontrack_20102012
+      ontrack_2013
+      /*ontrack_austin_2012_a */;
+
+    if unit = 2490 and yr = 2012 then do;
+         ontrackT = .; 
+         ontrackP = .;
+    end;
+
+run;
+
+proc sort data=ontrack_20102013; by unit;
+proc sort data=charter_FOT_AP_OptIn_c; by unit;
+
+data ontrack_a (keep = yr unit ontrackT ontrackP);
+  merge ontrack_20102013 (in=in_ontrack) charter_FOT_AP_OptIn_c; by unit;
+
+   if in_ontrack;
+
+     if FOT_OptIn = 'No' then do;
+	    ontrackP = .;
+	    ontrackT = .;
+     end;
+run;
+
+** FRESHMAN ON TRACK DATA SECTION - ENDS     **;
+***********************************************;
+
+*************************************************;
+** ADJUSTED ATTENDANCE DATA SECTION - BEGINS   **;
+
+*********************************************************************************;
+*** Get previous year's data attendance data                            **;
+
+data perf_policy_prevyr_attd (keep = yr schl_id attd);
+  set perf_policy_2013_a;
+
+	     length yr 4. schl_id 8. attd 5.;
+		 format attd 5.1;
+            yr=%eval(&year-3);
+            attd=round(attdCY_2,.1);
+            output;
+
+            yr=%eval(&year-2);
+            attd=round(attdCY_1,.1);
+            output;
+
+            yr=%eval(&year-1);
+            attd=round(attdCY,.1);
+            output;
+run;  
+
+
+*********************************************************************************************;
+** Get adjusted attendance off of DW.  Created in this project in job Adjusted Attendance  **;
+
+data perf_policy_curryr_attd (keep = yr schl_id attd) ;
+     ** set ppadjatd.schattd_best_possible_20130813;
+	 set ppadjatd.schattd_best_possible_20131025A;
+
+	 if grade_group = 'K12';
+	   
+	     length yr 4. schl_id 8. attd 5.;
+		/* format attd 5.1;*/
+	     yr = %eval(&year);
+		 schl_id = schoolid * 1;
+		 attd = round(attd_pct,.1);
+run;
+
+proc append data=perf_policy_curryr_attd out=perf_policy_prevyr_attd;
+
+proc print data=perf_policy_prevyr_attd;
+where schl_id = 609679;
+
+/*
+title1 "perf_policy_curryr_attd";
+proc print data=perf_policy_curryr_attd (obs = 100);
+where schl_id =  609754;
+run;
+*/
+
+proc sort data=perf_policy_prevyr_attd; by schl_id;
+proc sort data=schools; by schl_id;
+
+data attd_a (keep = yr unit schl_id attd)
+     no_schl;
+  merge perf_policy_prevyr_attd (in = in_attd) schools (in = in_sch); by schl_id;
+
+ /***********************************************************************************************/
+ /** Now its time to hard code attendance changes                                              **/
+ /** The following 13 schools are being updated as it was found that Jorge CPS EDU file has    **/
+ /** slightly higher attendance for these schools                                              **/
+ /**                                                                                           **/
+ /** schlname_l	                                  schl_id	unit	yr	attd_mine	attd_cps   **/
+ /** William H Brown Elementary School	          609812	2400	2013	92	        92.1   **/
+ /** Robert Nathaniel Dett Elementary School	  610252	6740	2013	94.9	    95     **/
+ /** Ray Graham Training Center High School       609769	1950	2013	88.6	    88.7   **/
+ /** Nancy B Jefferson Alternative High School    609783	2120	2013	93	        93.3   **/
+ /** Little Black Pearl Art and Design Academy    400137	9054	2013	77.4	    77.7   **/
+ /** Josephine C Locke Elementary School	      610041	4510	2013	95.3	    95.4   **/
+ /** George B McClellan Elementary School	      610062	4710	2013	93.2	    93.3   **/
+ /** Noble Street Charter School – Johnson HS     400106	8028	2013	91.4	    91.5   **/
+ /** Noble Street Charter School - Silver	      400117	9034	2013	92	        92.1   **/
+ /** James N Thorp Elementary School	          610200	6180	2013	90.8	    90.9   **/
+ /** Barbara Vick Early Childhood & Family Center 609871	2920	2013	87	        87.9   **/
+ /** Richard Yates Elementary School	          610234	6510	2013	94.1     	94.2   **/   
+ /** YCCS-CCA Academy HS	                      400128	9045	2013	81.3    	81.4   **/
+
+  if schl_id =400106 and yr = 2013 then attd =91.5;
+  if schl_id =400117 and yr = 2013 then attd =92.1;
+  if schl_id =400128 and yr = 2013 then attd =81.4;
+  if schl_id =400137 and yr = 2013 then attd =77.7;
+  ** if schl_id =609769 and yr = 2013 then attd =88.7;
+  if schl_id =609783 and yr = 2013 then attd =93.3;
+  ** if schl_id =609812 and yr = 2013 then attd = 92.1;
+  if schl_id =609871 and yr = 2013 then attd =87.9;
+  if schl_id =610041 and yr = 2013 then attd =95.4;
+  ** if schl_id =610062 and yr = 2013 then attd =93.3;
+  ** if schl_id =610200 and yr = 2013 then attd =90.9;
+  if schl_id =610234 and yr = 2013 then attd =94.2;
+  if schl_id =610252 and yr = 2013 then attd =95;
+
+  /** Also at a later date we recieved ASPIRA CHRTR  - EARLY COLLEGE HS 2011 Attendance data  **/
+  /** We are therefore adding it now per Ryan                                                 **/
+
+  if schl_id =400013 and yr = 2011 then attd =90.9;
+
+
+   if yr >= (&year - 3);
+
+        if in_attd and in_sch then output attd_a;
+   else if in_attd and not in_sch then output no_schl;
+   else delete;
+run;
+
+proc sort data=attd_a; by unit yr;
+
+/*
+title1 'Goofy';
+proc freq data=attd_a;
+  tables yr;                    
+run;
+
+title1 "attd_a";
+proc print data=attd_a (obs = 100);
+where schl_id =  609754;
+run;
+*/
+                                               
+title1 "Attendance data without a unit number";
+proc print data=no_schl (obs = 100);
+run;
+
+** ADJUSTED ATTENDANCE DATA SECTION - ENDS   **;
+***********************************************;
+
+
+
+**************************************************************;
+*** Get previous years probation and level final statuses.  **;
+
+data probation (keep = unit probation&year level&year 
+                            probation%eval(&year-1) level%eval(&year-1) 
+                            probation%eval(&year-2) level%eval(&year-2)
+               );
+/*   merge probation_20102012_a probation_2013_a; by unit; */
+set perf_policy_2013_a;
+
+   if (unit=.) then delete;
+
+ run;
+
+
+
+**********************************************************;
+** Now we get the base data prepared                    **;
+
+proc transpose data=racedemo_a out=grades_served_a prefix=grade;
+  by unit;
+  var total;
+  id grade;
+run;
+
+proc sort data=schools; by unit;
+
+
+data schlcurr_list (keep = schlname schlname_l schl_id unit statunit NetworkNumber NetworkDescription FY11_area schl_id eh_ind 
+                           address zipcode mailrun
+                           grade3 grade4 grade5 grade6 grade7 grade8 
+                           grade9 grade10 grade11 grade12 schltype);
+  attrib schlname schlname_l schl_id unit statunit NetworkNumber NetworkDescription FY11_area schl_id eh_ind 
+         address zipcode mailrun
+         grade3 grade4 grade5 grade6 grade7 grade8 
+         grade9 grade10 grade11 grade12 schltype label='';
+
+  merge schools (in=in_schlcurr) grades_served_a; by unit;
+
+   if in_schlcurr;
+
+run;
+
+proc sort data=schlcurr_list; by schl_id;
+run;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2014\input\attendance_overtime_2013_revised.csv"
+      out= cps_edu_attd_a
+      dbms=dlm
+      replace;
+      delimiter=",";
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+data cps_edu_attd_b (keep = schl_id);
+  set cps_edu_attd_a;
+    if group = 'GRADE' and compress(grade) in ('9','10','11','12') and attd2013 > 0;
+run;
+
+proc sort data=cps_edu_attd_b nodup; by schl_id;
+
+data schlcurr (keep = schlname schl_id unit eh_ind schltype schlname_l FY11_area  mailrun);
+  merge schlcurr_list (in=in_schl) cps_edu_attd_b (in=in_912_attd); by schl_id;
+
+  if in_schl and in_912_attd and index(upcase(eh_ind),'HIGH');
+
+   /* if  (grade9 > 0) or (grade10 > 0) or (grade11 > 0) or (grade12 > 0) or index(upcase(compress(NetworkDescription)),'HSNETWORK') > 0; */
+;
+run;
+
+proc sort data=schlcurr; by unit;
+
+********************************************************************************************;
+**   Average ACT Improvement Points                       - actA          act_tt         ***;  
+**   One Year Drop-out Improvement Points                 - dropP         dropN          ***;  
+**   Freshman On Track Improvement Points                 - ontrackP      ontrackT       ***;  
+**   Attendance Improvement Points                        - attd                         ***;  
+**   AP Enrollment Improvement Points                     - apibec_enrollP   enroll_n      ***;  
+**   AP Success Improvement Points                        - apibec_successP  apibec_enroll_n ***;  
+**   PSAE Reading Improvement points - Meet Exceed        - rd_mexcP      rd_tt          ***;  
+**   PSAE Math Improvement points - Meet Exceed           - mt_mexcP      mt_tt          ***;  
+**   PSAE Science Improvement points - Meet Exceed        - sc_mexcP      sc_tt          ***;  
+**   PSAE Composite Improvement points - Meet Exceed      - cp_mexcP      cp_tt          ***;  
+**   EPAS Gains Reading Improvement Points                - epas_rdP      epas_rdN       ***;  
+**   EPAS Gains Math Improvement Points                   - epas_mtP      epas_mtN       ***;  
+
+********************************************************************************;
+**  First we will take care of rotating the data into one line for each topic **;
+
+%macro rotate(rotate_data_in, rotate_data_out, rotatee);
+proc sort data=&rotate_data_in; by unit yr;
+
+proc transpose data=&rotate_data_in out=&rotate_data_out.a prefix=&rotatee;
+  by unit;
+  var &rotatee;
+  id yr;
+run;
+
+data &rotate_data_out (keep = unit &rotatee.CY &rotatee.CY_1 &rotatee.CY_2 &rotatee.CY_3);
+  set &rotate_data_out.a;
+
+  /*In case we need to use previous yr as current yr*/
+
+  %if ("&rotatee" = "goofy") %then %do;
+     %macro rot_yr(rot_yr1,rot_yr2);
+        /* &rotatee.&rot_yr1 = &rotatee.&rot_yr2; */
+	       &rotatee.&rot_yr1 = round(&rotatee.&rot_yr2,.1);
+
+        drop &rotatee.&rot_yr2;
+     %mend rot_yr;
+     %rot_yr(CY_3,%eval(&year-4)); %rot_yr(CY_2,%eval(&year-3)); %rot_yr(CY_1,%eval(&year-2)); %rot_yr(CY,%eval(&year-1));
+  %end;
+  %else %do;
+     %macro rot_yr(rot_yr1,rot_yr2);
+        /* &rotatee.&rot_yr1 = &rotatee.&rot_yr2; */
+	       &rotatee.&rot_yr1 = round(&rotatee.&rot_yr2,.1);
+
+        drop &rotatee.&rot_yr2;
+     %mend rot_yr;
+     %rot_yr(CY_3,%eval(&year-3)); %rot_yr(CY_2,%eval(&year-2)); %rot_yr(CY_1,%eval(&year-1)); %rot_yr(CY,&year);
+  %end;
+
+
+
+run;
+
+proc sort data=&rotate_data_out; by unit;
+
+** title1 "Sample &rotatee Records";
+** proc print data=&rotate_data_out (obs=10);
+
+%mend rotate;
+
+%rotate(psae_act_a,act_b,actA);
+%rotate(drop_a,drop_b,dropP);
+%rotate(ontrack_a,ontrack_b,ontrackP);
+%rotate(attd_a,attd_b,attd);
+%rotate(apibec_enroll_success_a,apibec_enroll_b,apibec_enrollP);
+%rotate(apibec_enroll_success_a,apibec_success_b,apibec_successP);
+%rotate(psae_act_a,psae_rd_mexcP,rd_mexcP);
+%rotate(psae_act_a,psae_mt_mexcP,mt_mexcP);
+%rotate(psae_act_a,psae_sc_mexcP,sc_mexcP);
+%rotate(psae_act_a,psae_cp_mexcP,cp_mexcP);
+
+************************************************************************;
+**  Now we will just keep track of the counts in case we set a minimum **;
+
+%macro rotate_n(rotate_data_in, rotate_data_out, rotatee);
+proc sort data=&rotate_data_in; by unit yr;
+
+proc transpose data=&rotate_data_in out=&rotate_data_out.a prefix=&rotatee;
+  by unit;
+  var &rotatee;
+  id yr;
+run;
+
+data &rotate_data_out (keep = unit &rotatee.CY &rotatee.CY_1 &rotatee.CY_2 &rotatee.CY_3);
+  set &rotate_data_out.a;
+
+  /*In case we need to use previous yr as current yr*/
+
+  %if ("&rotatee" = "goofy") %then %do; /* A1 */
+     %macro rot_yr(rot_yr1,rot_yr2);
+       length &rotatee.&rot_yr1 8.;
+       &rotatee.&rot_yr1 = &rotatee.&rot_yr2;
+
+       drop &rotatee.&rot_yr2;
+     %mend rot_yr;
+     %rot_yr(CY_3,%eval(&year-4)); %rot_yr(CY_2,%eval(&year-3)); %rot_yr(CY_1,%eval(&year-2)); %rot_yr(CY,%eval(&year-1));
+  %end;
+  %else %do;
+     %macro rot_yr(rot_yr1,rot_yr2);
+       length &rotatee.&rot_yr1 8.;
+       &rotatee.&rot_yr1 = &rotatee.&rot_yr2;
+
+       drop &rotatee.&rot_yr2;
+     %mend rot_yr;
+     %rot_yr(CY_3,%eval(&year-3)); %rot_yr(CY_2,%eval(&year-2)); %rot_yr(CY_1,%eval(&year-1)); %rot_yr(CY,&year);
+  %end;
+run;
+
+proc sort data=&rotate_data_out; by unit;
+
+** title1 "Sample &rotatee Records";
+** proc print data=&rotate_data_out (obs=10);
+
+%mend rotate_n;
+%rotate_n(psae_act_a,act_tt,act_tt);
+%rotate_n(drop_a,dropN,dropN);
+%rotate_n(ontrack_a,ontrackT,ontrackT);
+%rotate_n(apibec_enroll_success_a,enroll_n,enroll_n);
+%rotate_n(apibec_enroll_success_a,apibec_enroll_n,apibec_enroll_n);
+%rotate_n(psae_act_a,psae_rd_tt,rd_tt); 
+%rotate_n(psae_act_a,psae_mt_tt,mt_tt); 
+%rotate_n(psae_act_a,psae_sc_tt,sc_tt);
+%rotate_n(psae_act_a,psae_cp_tt,cp_tt);
+
+****************************************************;
+**  Take care of the EPAS Gains percentiles      ***;
+**  First we take careof reading and then        ***;
+**  we take care of math                         ***; 
+****************************************************; 
+
+****************************************************;
+** Get the total count of valid records - Reading **; 
+
+proc sql;
+  create table epas_total_rdct as 
+  (select count(*) as epas_total_rdct
+     from epas_a
+    where epas_rdNCY >= 10); 
+run;
+
+data _null_;
+  set epas_total_rdct;
+    call symput('epas_total_rdct',epas_total_rdct); 
+run;
+
+*********************************************************;
+** Determine the benchmark percentile ranks  - Reading **;
+
+data epas_rd_a;
+   set epas_a;
+
+      if epas_rdNCY >= 10;
+
+run;
+
+proc rank data=epas_rd_a out=epas_rd_b ties=low;
+  var epas_rdPCY;
+  ranks epas_rd_rank;
+run;
+
+data epas_rd_c (keep = unit epas_rd_rank epas_rdPtile);
+   set epas_rd_b;
+    
+     epas_total_rdct = &epas_total_rdct;
+     epas_rdPtile = round((((epas_rd_rank - 1)/ epas_total_rdct) * 100),1);
+
+run;
+
+%macro skip;
+PROC UNIVARIATE  data=epas_rd_c all noprint;
+   var epas_rdPtile;
+   output out=epas_percentile_rd pctlpre=P_ pctlpts= &epas_rdP_trend_cp1, &epas_rdP_trend_cp2, &epas_rdP_trend_cp3;
+run;
+
+data _null_;
+   set epas_percentile_rd;
+      call symput('epas_rdP_cp15',P_15); 
+      call symput('epas_rdP_cp50',P_50); 
+      call symput('epas_rdP_cp85',P_85); 
+run;
+%mend skip;
+
+*************************************************;
+** Get the total count of valid records - Math **; 
+
+proc sql;
+  create table epas_total_mtct as 
+  (select count(*) as epas_total_mtct
+     from epas_a
+    where epas_mtNCY >= 10); 
+run;
+
+data _null_;
+  set epas_total_mtct;
+    call symput('epas_total_mtct',epas_total_mtct); 
+run;
+
+*****************************************************;
+** Determine the benchmark percentile ranks - Math **;
+
+data epas_mt_a;
+   set epas_a;
+
+      if epas_mtNCY >= 10;
+
+run;
+
+proc rank data=epas_mt_a out=epas_mt_b ties=low;
+  var epas_mtPCY;
+  ranks epas_mt_rank;
+run;
+
+data epas_mt_c (keep = unit epas_mt_rank epas_mtPtile);
+   set epas_mt_b;
+    
+     epas_total_mtct = &epas_total_mtct;
+     epas_mtPtile = round((((epas_mt_rank - 1)/ epas_total_mtct) * 100),1);
+
+run;
+
+%macro skip;
+PROC UNIVARIATE  data=epas_mt_c all noprint;
+   var epas_mtPtile;
+   output out=epas_percentile_mt pctlpre=P_ pctlpts= &epas_mtP_trend_cp1, &epas_mtP_trend_cp2, &epas_mtP_trend_cp3;
+run;
+
+data _null_;
+   set epas_percentile_mt;
+      call symput('epas_mtP_cp15',P_15); 
+      call symput('epas_mtP_cp50',P_50); 
+      call symput('epas_mtP_cp85',P_85); 
+run;
+%mend skip;
+
+proc sort data=epas_rd_c; by unit;
+proc sort data=epas_mt_c; by unit;
+proc sort data=epas_a; by unit;
+proc sort data=charter_FOT_AP_OptIn_c; by unit; 
+
+************************************************************************;
+**  Here is the meat of the code.  We determine points recieved,      **;
+**  points possible, valid metrics, and which metrics recieved points **;
+**  for hitting the ceiling which would not have happenned due to     **;
+**  growth.                                                           **;
+
+data perf_policy_a; 
+   merge schlcurr (in=in_schlcurr)
+         act_b (in=in_actA)
+         drop_b (in=in_dropP)
+         ontrack_b (in=in_ontrackP)
+         attd_b (in=in_attd)
+         apibec_enroll_b (in=in_apibec_enrollP)
+         apibec_success_b (in=in_apibec_successP)
+         psae_rd_mexcP (in=in_rd_mexcP)
+         psae_sc_mexcP (in=in_sc_mexcP)
+         psae_mt_mexcP (in=in_mt_mexcP)
+         psae_cp_mexcP (in=in_cp_mexcP)
+         epas_rd_c (in=in_epas_rd)
+         epas_mt_c (in=in_epas_mt)
+         epas_a
+         act_tt
+         dropN
+         ontrackT
+         apibec_enroll_n
+         enroll_n
+         psae_rd_tt
+         psae_sc_tt
+         psae_mt_tt
+         psae_cp_tt
+		 charter_FOT_AP_OptIn_c; by unit;
+
+    if in_schlcurr;
+
+    length  metric_current_actA metric_current_dropP metric_current_ontrackP metric_current_attd 
+            metric_current_rd_mexcP metric_current_mt_mexcP metric_current_sc_mexcP 
+
+            metric_trend_actA metric_trend_dropP metric_trend_ontrackP metric_trend_attd 
+            metric_trend_rd_mexcP metric_trend_mt_mexcP metric_trend_sc_mexcP 
+            metric_trend_epas_rdP metric_trend_epas_mtP 
+            metric_trend_apibec_enrollP metric_trend_apibec_successP  3.
+
+            apibec_enrollPcurrent_ED apibec_enrollPtrend_ED $3.
+            apibec_enrollPcurrent_2A apibec_enrollPcurrent_1A apibec_enrollPcurrent_cyA
+            apibec_enrollPtrend_2A apibec_enrollPtrend_3A apibec_enrollPtrend_a apibec_enrollPtrend_diff
+            apibec_enrollPCY apibec_enrollPCY_1 apibec_enrollPCY_2 apibec_enrollPCY_3 6.
+
+            attdcurrent_ED attdtrend_ED $3.
+            attdcurrent_2A attdcurrent_1A attdcurrent_cyA 
+            attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff 
+            attdCY attdCY_1 attdCY_2 attdCY_3 6.
+
+
+            pct_trendandgrowth_total pct_trendandgrowth_rd pct_trendandgrowth_mt pct_trendandgrowth_sc 
+            pp_trendandgrowth_total  pp_trendandgrowth_rd  pp_trendandgrowth_mt  pp_trendandgrowth_sc  perf_policy_pp 
+            pp_currentandtrend_actA pp_currentandtrend_dropP pp_currentandtrend_ontrackP 
+            pp_currentandtrend_attd pp_currentandtrend_rd_mexcP pp_currentandtrend_mt_mexcP pp_currentandtrend_sc_mexcP 
+            pct_trend_total                                                                            pofposs_pts 5.1
+
+            pr_trendandgrowth_total pr_trendandgrowth_rd pr_trendandgrowth_mt pr_trendandgrowth_sc
+            pr_current_total        pr_current_rd_mexcP  pr_current_mt_mexcP  pr_current_sc_mexcP
+            pr_trend_total                                                                             perf_policy_pr  
+            pr_currentandtrend_actA pr_currentandtrend_dropP pr_currentandtrend_ontrackP 
+            pr_currentandtrend_attd pr_currentandtrend_rd_mexcP pr_currentandtrend_mt_mexcP pr_currentandtrend_sc_mexcP  7.4
+
+            perf_policy_level $30. prin_eval_level $55.
+
+            charter_ap_enrollP charter_ap_successP charter_ontrackP $8.;
+
+    format  pct_trendandgrowth_total pct_trendandgrowth_rd pct_trendandgrowth_mt pct_trendandgrowth_sc 
+            pp_trendandgrowth_total  pp_trendandgrowth_rd  pp_trendandgrowth_mt  pp_trendandgrowth_sc  perf_policy_pp 
+            pp_currentandtrend_actA pp_currentandtrend_dropP pp_currentandtrend_ontrackP 
+            pp_currentandtrend_attd pp_currentandtrend_rd_mexcP pp_currentandtrend_mt_mexcP pp_currentandtrend_sc_mexcP 
+            pct_trend_total                                                                            pofposs_pts 5.1;
+
+/*         pr_current_total pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP
+           pr_trend_total pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP
+           pr_trendandgrowth_total pr_trendandgrowth_rd pr_trendandgrowth_mt pr_trendandgrowth_sc 
+           perf_policy_pp 5.1 perf_policy_pr
+           pp_trendandgrowth_total pct_trendandgrowth_total 7.4
+        
+           pp_trendandgrowth_total pp_trendandgrowth_rd pp_trendandgrowth_mt pp_trendandgrowth_sc 5.
+
+           apibec_enrollPcurrent_ED apibec_enrollPtrend_ED $3.
+           apibec_enrollPcurrent_2A apibec_enrollPcurrent_1A apibec_enrollPcurrent_cyA
+           apibec_enrollPtrend_2A apibec_enrollPtrend_3A apibec_enrollPtrend_a apibec_enrollPtrend_diff
+           apibec_enrollPCY apibec_enrollPCY_1 apibec_enrollPCY_2 apibec_enrollPCY_3 5.1
+
+           attdcurrent_ED attdtrend_ED $3.
+           attdcurrent_2A attdcurrent_1A attdcurrent_cyA 
+           attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff 
+           attdCY attdCY_1 attdCY_2 attdCY_3 5.1
+
+           prin_eval_level $40.; 
+*/
+ 
+    %macro setup(varp,varc);
+
+       length &varp.current_ED &varp.trend_ED $3.
+              &varp.current_2A &varp.current_1A &varp.current_cyA 
+              &varp.trend_2A &varp.trend_3A &varp.trend_a &varp.trend_diff 
+              &varp.CY &varp.CY_1 &varp.CY_2 &varp.CY_3 6.;
+
+       format &varp.current_ED &varp.trend_ED $3.
+              &varp.current_2A &varp.current_1A &varp.current_cyA 
+              &varp.trend_2A &varp.trend_3A &varp.trend_diff 
+              &varp.CY &varp.CY_1 &varp.CY_2 &varp.CY_3 5.1; 
+
+      /*************************************************/
+       /* The following is for current status analysis  */
+
+           if (&varc.CY_1 >= &min_count) and (&varc.CY >= &min_count) then do;
+                &varp.current_1A = .;
+                &varp.current_2A = round((mean(&varp.CY, &varp.CY_1 )),.1);
+                &varp.current_cyA = &varp.current_2A;
+                &varp.current_ED = 'Yes';
+           end;
+      else if (&varc.CY >= &min_count) then do;
+                &varp.current_2A = .;
+                &varp.current_1A = &varp.CY;
+                &varp.current_cyA = &varp.current_1A;
+                &varp.current_ED = 'Yes';
+           end;
+      else do;
+                &varp.current_2A = .;
+                &varp.current_1A = .;
+                &varp.current_cyA = .;
+                &varp.current_ED = 'No';
+           end;
+
+       /****************************************/
+       /* The following is for trend analysis  */
+
+
+            if (&varc.CY_3 >= &min_count) and (&varc.CY_2 >= &min_count) 
+                  and (&varc.CY_1 >= &min_count) and (&varc.CY >= &min_count) then do;
+                &varp.trend_2A = .;
+                &varp.trend_3A = round(mean(&varp.CY_3, &varp.CY_2, &varp.CY_1 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_3A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else if ((&varc.CY_2 >= &min_count) and (&varc.CY_1 >= &min_count))
+           and (&varc.CY >= &min_count) then do;
+                &varp.trend_3A = .;
+                &varp.trend_2A = round(mean(&varp.CY_2,&varp.CY_1 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_2A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else if ((&varc.CY_3 >= &min_count) and (&varc.CY_2 >= &min_count))
+           and (&varc.CY >= &min_count) then do;
+                &varp.trend_3A = .;
+                &varp.trend_2A = round(mean(&varp.CY_3,&varp.CY_2 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_2A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else if ((&varc.CY_3 >= &min_count) and (&varc.CY_1 >= &min_count))
+           and (&varc.CY >= &min_count) then do;
+                &varp.trend_3A = .;
+                &varp.trend_2A = round(mean(&varp.CY_3,&varp.CY_1 ),.1);
+                &varp.trend_ED = 'Yes';
+                &varp.trend_a = &varp.trend_2A;
+                &varp.trend_diff = round(&varp.CY - &varp.trend_a,.1);
+           end;
+      else do;
+                &varp.trend_ED = 'No';
+                &varp.trend_2A = .;
+                &varp.trend_3A = .;
+                &varp.trend_a = .;
+                &varp.trend_diff = .;
+           end;
+
+    %mend setup;
+
+    %setup(actA,act_tt);
+    %setup(dropP,dropN);
+    %setup(ontrackP,ontrackT);
+    %setup(attd,attd);
+    %setup(apibec_enrollP,enroll_n);
+    %setup(apibec_successP,apibec_enroll_n);
+    %setup(rd_mexcP,rd_tt);
+    %setup(mt_mexcP,mt_tt);
+    %setup(sc_mexcP,sc_tt);
+  
+       /**********************************************************************************/
+       /* Per Ryan we are changing how we handle AP and FOT for Charter schools          */
+       /* If a charte does not have enough data for Trend then we supress Current and    */
+	   /* underlying data as well                                                        */
+
+	         if (upcase(trim(schltype)) = 'CHARTER') and apibec_enrollPtrend_ED = 'No' then do;
+			    if apibec_enrollPcurrent_ED = 'Yes' then charter_ap_enrollP = 'Changed';
+			    apibec_enrollPcurrent_ED = 'No';
+                apibec_enrollPcurrent_2A = .;
+                apibec_enrollPcurrent_1A = .;
+                apibec_enrollPcurrent_cyA = .;
+				apibec_enrollPCY = .;	
+                apibec_enrollPCY_1 = .;	
+                apibec_enrollPCY_2 = .;	
+                apibec_enrollPCY_3 = .;	
+                enroll_nCY = .;	
+                enroll_nCY_1 = .;	
+                enroll_nCY_2 = .;	
+                enroll_nCY_3 = .;
+		    end;
+
+	         if (upcase(trim(schltype)) = 'CHARTER') and apibec_successPtrend_ED = 'No' then do;
+			    if apibec_successPcurrent_ED = 'Yes' then charter_ap_successP = 'Changed';
+			    apibec_successPcurrent_ED = 'No';
+                apibec_successPcurrent_2A = .;
+                apibec_successPcurrent_1A = .;
+                apibec_successPcurrent_cyA = .;
+				apibec_successPCY = .;	
+                apibec_successPCY_1 = .;	
+                apibec_successPCY_2 = .;	
+                apibec_successPCY_3 = .;	
+                apibec_enroll_nCY = .;	
+                apibec_enroll_nCY_1 = .;	
+                apibec_enroll_nCY_2 = .;	
+                apibec_enroll_nCY_3 = .;
+		    end;
+
+	         if (upcase(trim(schltype)) = 'CHARTER') and ontrackPtrend_ED = 'No' then do;
+			    if ontrackPcurrent_ED = 'Yes' then charter_ontrackP = 'Changed';
+			    ontrackPcurrent_ED = 'No';
+                ontrackPcurrent_2A = .;
+                ontrackPcurrent_1A = .;
+                ontrackPcurrent_cyA = .;
+				ontrackPCY = .;	
+                ontrackPCY_1 = .;	
+                ontrackPCY_2 = .;	
+                ontrackPCY_3 = .;	
+                ontrack_nCY = .;	
+                ontrack_nCY_1 = .;	
+                ontrack_nCY_2 = .;	
+                ontrack_nCY_3 = .;
+		    end;
+
+
+
+
+%macro skip;
+     *************************************************;
+     *****  This section is just for ap enrollment  **;
+
+       /**********************************************************************************/
+       /* Per Ryan we are changing how we handle AP enrollment for Charter schools       */
+       /* Last year if a charter school had zeros in any year of AP enrollment % we      */
+       /* forced the current and trend status to have Not enough data and the school     */
+       /* was not judged on AP enrollment.  Ryan has said that this year only if         */
+       /* both years in current status and all four years in trend status                */
+       /* had a percent of 0 or Null then we exlcude.  Every other case is               */
+       /* treated like any other school                                                  */
+ 
+       /****************************/
+       /* Current status analysis **/
+
+         if (upcase(trim(schltype)) = 'CHARTER') and unit not in (4911,2420,7740,1930,1935,1934,1931,1932,1933,1105,1106) then do;
+                apibec_enrollPcurrent_2A = .;
+                apibec_enrollPcurrent_1A = .;
+                apibec_enrollPcurrent_cyA = .;
+                apibec_enrollPcurrent_ED = 'No';
+         end;
+         else do;
+                 if (enroll_nCY_1 >= &min_count) and (enroll_nCY >= &min_count) then do;
+                   apibec_enrollPcurrent_1A = .;
+                   apibec_enrollPcurrent_2A = round((mean(apibec_enrollPCY, apibec_enrollPCY_1 )),.1);
+                   apibec_enrollPcurrent_cyA = apibec_enrollPcurrent_2A;
+                   apibec_enrollPcurrent_ED = 'Yes';
+                 end;
+            else if (enroll_nCY >= &min_count) then do;
+                   apibec_enrollPcurrent_2A = .;
+                   apibec_enrollPcurrent_1A = apibec_enrollPCY;
+                   apibec_enrollPcurrent_cyA = apibec_enrollPcurrent_1A;
+                   apibec_enrollPcurrent_ED = 'Yes';
+                 end;
+            else do;
+                   apibec_enrollPcurrent_2A = .;
+                   apibec_enrollPcurrent_1A = .;
+                   apibec_enrollPcurrent_cyA = .;
+                   apibec_enrollPcurrent_ED = 'No';
+                 end;
+         end;
+
+       /****************************/
+       /* Trend status analysis **/
+
+         if (upcase(trim(schltype)) = 'CHARTER') and unit not in (4911,2420,7740,1930,1935,1934,1931,1932,1933,1105,1106) then do;
+                apibec_enrollPtrend_ED = 'No';
+                apibec_enrollPtrend_2A = .;
+                apibec_enrollPtrend_3A = .;
+                apibec_enrollPtrend_a = .;
+                apibec_enrollPtrend_diff = .;
+         end;
+         else do;
+               if (enroll_nCY_3 >= &min_count) and (enroll_nCY_2 >= &min_count) 
+                    and (enroll_nCY_1 >= &min_count) and (enroll_nCY >= &min_count) then do;
+                  apibec_enrollPtrend_2A = .;
+                  apibec_enrollPtrend_3A = round(mean(apibec_enrollPCY_3, apibec_enrollPCY_2, apibec_enrollPCY_1 ),.1);
+                  apibec_enrollPtrend_ED = 'Yes';
+                  apibec_enrollPtrend_a = apibec_enrollPtrend_3A;
+                  apibec_enrollPtrend_diff = round(apibec_enrollPCY - apibec_enrollPtrend_a,.1);
+              end;
+           else if ((enroll_nCY_2 >= &min_count) and (enroll_nCY_1 >= &min_count))
+               and (enroll_nCY >= &min_count) then do;
+                  apibec_enrollPtrend_3A = .;
+                  apibec_enrollPtrend_2A = round(mean(apibec_enrollPCY_2,apibec_enrollPCY_1 ),.1);
+                  apibec_enrollPtrend_ED = 'Yes';
+                  apibec_enrollPtrend_a = apibec_enrollPtrend_2A;
+                  apibec_enrollPtrend_diff = round(apibec_enrollPCY - apibec_enrollPtrend_a,.1);
+               end;
+           else if ((enroll_nCY_3 >= &min_count) and (enroll_nCY_2 >= &min_count))
+               and (enroll_nCY >= &min_count) then do;
+                  apibec_enrollPtrend_3A = .;
+                  apibec_enrollPtrend_2A = round(mean(apibec_enrollPCY_3,apibec_enrollPCY_2 ),.1);
+                  apibec_enrollPtrend_ED = 'Yes';
+                  apibec_enrollPtrend_a = apibec_enrollPtrend_2A;
+                apibec_enrollPtrend_diff = round(apibec_enrollPCY - apibec_enrollPtrend_a,.1);
+              end;
+           else if ((enroll_nCY_3 >= &min_count) and (enroll_nCY_1 >= &min_count))
+                and (enroll_nCY >= &min_count) then do;
+                  apibec_enrollPtrend_3A = .;
+                  apibec_enrollPtrend_2A = round(mean(apibec_enrollPCY_3,apibec_enrollPCY_1 ),.1);
+                  apibec_enrollPtrend_ED = 'Yes';
+                  apibec_enrollPtrend_a = apibec_enrollPtrend_2A;
+                  apibec_enrollPtrend_diff = round(apibec_enrollPCY - apibec_enrollPtrend_a,.1);
+              end;
+           else do;
+                  apibec_enrollPtrend_ED = 'No';
+                  apibec_enrollPtrend_2A = .;
+                  apibec_enrollPtrend_3A = .;
+                  apibec_enrollPtrend_a = .;
+                  apibec_enrollPtrend_diff = .;
+              end;
+         end;
+
+
+     ***********************************************;
+     *****  This section is just for atttendance  **;
+
+      /*************************************************/
+       /* The following is for current status analysis  */
+
+           if (attdCY_1 NE .) and (attdCY NE .) then do;
+                attdcurrent_1A = .;
+                attdcurrent_2A = sum(round(attdCY,.1),round(attdCY_1,.1)) / 2;
+                /*attdcurrent_2A = round((mean(round(attdCY,.1),round(attdCY_1,.1))),.1);*/
+                attdcurrent_cyA = attdcurrent_2A;
+                attdcurrent_ED = 'Yes';
+           end;
+      else if (attdCY NE .) then do;
+                attdcurrent_2A = .;
+                attdcurrent_1A = attdCY;
+                attdcurrent_cyA = attdcurrent_1A;
+                attdcurrent_ED = 'Yes';
+           end;
+      else do;
+                attdcurrent_2A = .;
+                attdcurrent_1A = .;
+                attdcurrent_cyA = .;
+                attdcurrent_ED = 'No';
+           end;
+
+       /****************************************/
+       /* The following is for trend analysis  */
+
+            if (attdCY_3 NE .) and (attdCY_2 NE .) 
+                  and (attdCY_1 NE .) and (attdCY NE .) then do;
+                attdtrend_2A = .;
+                attdtrend_3A = round(mean(attdCY_3, attdCY_2, attdCY_1 ),.1);
+                attdtrend_ED = 'Yes';
+                attdtrend_a = attdtrend_3A;
+                attdtrend_diff = round(attdCY - attdtrend_a,.1);
+           end;
+      else if ((attdCY_2 NE .) and (attdCY_1 NE .))
+           and (attdCY NE .) then do;
+                attdtrend_3A = .;
+                attdtrend_2A = round(mean(attdCY_2,attdCY_1 ),.1);
+                attdtrend_ED = 'Yes';
+                attdtrend_a = attdtrend_2A;
+                attdtrend_diff = round(attdCY - attdtrend_a,.1);
+           end;
+      else if ((attdCY_3 NE .) and (attdCY_2 NE .))
+           and (attdCY NE .) then do;
+                attdtrend_3A = .;
+                attdtrend_2A = round(mean(attdCY_3,attdCY_2 ),.1);
+                attdtrend_ED = 'Yes';
+                attdtrend_a = attdtrend_2A;
+                attdtrend_diff = round(attdCY - attdtrend_a,.1);
+           end;
+      else if ((attdCY_3 NE .) and (attdCY_1 NE .))
+           and (attdCY NE .) then do;
+                attdtrend_3A = .;
+                attdtrend_2A = round(mean(attdCY_3,attdCY_1 ),.1);
+                attdtrend_ED = 'Yes';
+                attdtrend_a = attdtrend_2A;
+                attdtrend_diff = round(attdCY - attdtrend_a,.1);
+           end;
+      else do;
+                attdtrend_ED = 'No';
+                attdtrend_2A = .;
+                attdtrend_3A = .;
+                attdtrend_a = .;
+                attdtrend_diff = .;
+           end;
+%mend skip;
+
+    /****************************************************************************************************/
+    /** Determine number of metrics used in calculation for school for both current and trend status   **/
+
+    %macro curr_trend_analysis1(curr_or_trend);
+
+      if ((in_actA) and (actA&curr_or_trend._ED = 'Yes') and (act_ttCY >= &min_count)) 
+                          then metric_&curr_or_trend._actA = 1; else metric_&curr_or_trend._actA = 0;
+
+      if ((in_dropP) and (dropP&curr_or_trend._ED = 'Yes') and (dropNCY >= &min_count)) 
+                          then metric_&curr_or_trend._dropP = 1; else metric_&curr_or_trend._dropP = 0;
+
+      if ((in_ontrackP) and (ontrackP&curr_or_trend._ED = 'Yes') and (ontrackTCY >= &min_count)) 
+                          then metric_&curr_or_trend._ontrackP = 1; else metric_&curr_or_trend._ontrackP = 0;
+
+      if ((in_attd) and (attd&curr_or_trend._ED = 'Yes')) then metric_&curr_or_trend._attd = 1; else metric_&curr_or_trend._attd = 0;
+
+      if ((in_rd_mexcP) and (rd_mexcP&curr_or_trend._ED = 'Yes') and (rd_ttCY >= &min_count)) 
+                          then metric_&curr_or_trend._rd_mexcP = 1; else metric_&curr_or_trend._rd_mexcP = 0;
+
+      if ((in_mt_mexcP) and (mt_mexcP&curr_or_trend._ED = 'Yes') and (mt_ttCY >= &min_count)) 
+                          then metric_&curr_or_trend._mt_mexcP = 1; else metric_&curr_or_trend._mt_mexcP = 0;
+
+      if ((in_sc_mexcP) and (sc_mexcP&curr_or_trend._ED = 'Yes') and (sc_ttCY >= &min_count)) 
+                          then metric_&curr_or_trend._sc_mexcP = 1; else metric_&curr_or_trend._sc_mexcP = 0;
+
+   %mend curr_trend_analysis1;
+   %curr_trend_analysis1(current); %curr_trend_analysis1(trend);
+
+    /*****************************************************************************************/
+    /** Only use trend analysis on epas gains and AP.  Does not need current metric.        **/
+
+   if ((in_epas_rd) and (epas_rdPCY NE .) and (epas_rdNCY >= &min_count))  
+                        then metric_trend_epas_rdP = 1; else metric_trend_epas_rdP = 0;
+
+   if ((in_epas_mt) and (epas_mtPCY NE .) and (epas_mtNCY >= &min_count))  
+                        then metric_trend_epas_mtP = 1; else metric_trend_epas_mtP = 0;
+
+   if ((in_apibec_enrollP) and (apibec_enrollPtrend_ED = 'Yes') and (enroll_nCY >= &min_count)) 
+                        then metric_trend_apibec_enrollP = 1; else metric_trend_apibec_enrollP = 0;
+
+   if ((in_apibec_successP) and (apibec_successPtrend_ED = 'Yes') and (apibec_enroll_nCY >= &min_count)) 
+                        then metric_trend_apibec_successP = 1; else metric_trend_apibec_successP = 0;
+
+    /*******************************************************************************/
+    /**  Determine the number of current points a school recieves for each metric **/
+    /**  Remember value added metrics does not have a current component           **/
+    
+    %macro current_points(var);
+
+         if metric_current_&var = 0 then do;
+            pr_current_&var = .;
+            pp_current_&var = 0;
+         end;
+        else do;
+             pp_current_&var= &&&var._current_pr3;
+                  if (round(&var.current_cyA,.1) <  &&&var._current_cp1)   then pr_current_&var = 00;
+             else if ((round(&var.current_cyA,.1) >= &&&var._current_cp1) 
+                      and (round(&var.current_cyA,.1) < &&&var._current_cp2)) then pr_current_&var =  &&&var._current_pr1;
+             else if ((round(&var.current_cyA,.1) >= &&&var._current_cp2) 
+                      and (round(&var.current_cyA,.1) < &&&var._current_cp3)) then pr_current_&var =  &&&var._current_pr2;
+             else if (round(&var.current_cyA,.1) >= &&&var._current_cp3)   then pr_current_&var =  &&&var._current_pr3;
+        end; 
+     
+    %mend current_points;
+    %current_points(actA);
+    %current_points(ontrackP);
+    %current_points(attd);
+    %current_points(rd_mexcP);
+    %current_points(mt_mexcP);
+    %current_points(sc_mexcP);
+
+    /************************************************************************************/
+    /**  Now we determine the number of trend points a school recieves for each metric **/
+    /**  except epas gains metrics                                                     **/
+    
+    %macro trend_points(var);
+
+         if metric_trend_&var = 0 then do;
+            pr_trend_&var = .;
+            pp_trend_&var = 0;
+         end;
+        else do;
+            if round(&var.CY,.1) < &&&var._auto then do;
+                    pp_trend_&var= &&&var._trend_pr3;
+                    if (round(&var.trend_diff,.1) <  &&&var._trend_cp1)   then pr_trend_&var = 00;
+               else if ((round(&var.trend_diff,.1) >= &&&var._trend_cp1) and (round(&var.trend_diff,.1) < &&&var._trend_cp2)) 
+                                                                then pr_trend_&var =  &&&var._trend_pr1;
+               else if ((round(&var.trend_diff,.1) >= &&&var._trend_cp2) and (round(&var.trend_diff,.1) < &&&var._trend_cp3)) 
+                                                                then pr_trend_&var =  &&&var._trend_pr2;
+               else if (round(&var.trend_diff,.1) >= &&&var._trend_cp3)   then pr_trend_&var =  &&&var._trend_pr3;
+            end;
+            else do;
+               pr_trend_&var = &&&var._trend_pr3;
+               pp_trend_&var = &&&var._trend_pr3;
+            end;
+        end; 
+
+          if (&var.CY >= &&&var._auto) and (round(&var.trend_diff,.1) < &&&var._trend_cp3) 
+        then chelp_trend_&var= 1; else chelp_trend_&var= .;
+
+    %mend trend_points;
+    %trend_points(actA);
+    %trend_points(ontrackP);
+    %trend_points(attd);
+    %trend_points(apibec_enrollP);
+    %trend_points(apibec_successP);
+    %trend_points(rd_mexcP);
+    %trend_points(mt_mexcP);
+    %trend_points(sc_mexcP);
+
+    /*************************************/
+    /**  Determine points for drop outs **/
+
+    %macro drop_points(var);
+
+         if metric_current_&var = 0 then do;
+            pr_current_&var = .;
+            pp_current_&var = 0;
+         end;
+        else do;
+             pp_current_&var= &&&var._current_pr3;
+                  if (round(&var.current_cyA,.1) >  &&&var._current_cp1)   then pr_current_&var = 00;
+             else if ((round(&var.current_cyA,.1) <= &&&var._current_cp1) 
+                      and (round(&var.current_cyA,.1) > &&&var._current_cp2)) then pr_current_&var =  &&&var._current_pr1;
+             else if ((round(&var.current_cyA,.1) <= &&&var._current_cp2) 
+                      and (round(&var.current_cyA,.1) > &&&var._current_cp3)) then pr_current_&var =  &&&var._current_pr2;
+             else if (round(&var.current_cyA,.1) <= &&&var._current_cp3)   then pr_current_&var =  &&&var._current_pr3;
+        end; 
+
+         if metric_trend_&var = 0 then do;
+            pr_trend_&var = .;
+            pp_trend_&var = 0;
+         end;
+        else do;
+            if &var.CY > &&&var._auto then do;
+                    pp_trend_&var= &&&var._trend_pr3;
+                    if (&var.trend_diff >  &&&var._trend_cp1)                                             then pr_trend_&var =  00;
+               else if ((&var.trend_diff <= &&&var._trend_cp1) and (&var.trend_diff > &&&var._trend_cp2)) then pr_trend_&var =  &&&var._trend_pr1;
+               else if ((&var.trend_diff <= &&&var._trend_cp2) and (&var.trend_diff > &&&var._trend_cp3)) then pr_trend_&var =  &&&var._trend_pr2;
+               else if (&var.trend_diff <= &&&var._trend_cp3)                                             then pr_trend_&var =  &&&var._trend_pr3;
+            end;
+            else do;
+               pr_trend_&var = &&&var._trend_pr3;
+               pp_trend_&var = &&&var._trend_pr3;
+            end;
+        end; 
+
+
+          if (&var.CY <= &&&var._auto) and (&var.trend_diff > &&&var._trend_cp3) 
+        then chelp_trend_&var= 1; else chelp_trend_&var= .;
+
+    %mend drop_points;
+    %drop_points(dropP);
+
+    /*****************************************************/
+    /**  Determine trend points for epas gains metrics  **/
+
+    %macro epas_points(var);
+
+          if metric_trend_&var = 0 then do;
+            pr_trend_&var = .;
+            pp_trend_&var = 0;
+         end;
+        else do;
+            pp_trend_&var= &&&var._trend_pr3;
+                 if  (&var.tile < &&&var._trend_cp1)      then pr_trend_&var = 00;
+            else if ((&var.tile >= &&&var._trend_cp1) and (&var.tile < &&&var._trend_cp2)) then pr_trend_&var =  &&&var._trend_pr1;
+            else if ((&var.tile >= &&&var._trend_cp2) and (&var.tile < &&&var._trend_cp3)) then pr_trend_&var =  &&&var._trend_pr2;
+            else if  (&var.tile >= &&&var._trend_cp3)   then pr_trend_&var =  &&&var._trend_pr3;
+        end;
+
+    %mend epas_points;
+    %epas_points(epas_rdP);
+    %epas_points(epas_mtP);
+
+    epas_rdP_cp15 = &epas_rdP_trend_cp1;
+    epas_rdP_cp50 = &epas_rdP_trend_cp2;
+    epas_rdP_cp85 = &epas_rdP_trend_cp3;
+ 
+    epas_mtP_cp15 = &epas_mtP_trend_cp1;
+    epas_mtP_cp50 = &epas_mtP_trend_cp2;
+    epas_mtP_cp85 = &epas_mtP_trend_cp3;
+
+    /*************************************/
+    /**  Now we get our current totals  **/
+
+    pr_current_total = sum(pr_current_actA, pr_current_dropP, pr_current_ontrackP, pr_current_attd,
+                           pr_current_rd_mexcP, pr_current_mt_mexcP, pr_current_sc_mexcP);
+
+    pp_current_total = sum(pp_current_actA, pp_current_dropP, pp_current_ontrackP, pp_current_attd,
+                           pp_current_rd_mexcP, pp_current_mt_mexcP, pp_current_sc_mexcP);
+
+    pct_current_total = round((pr_current_total / pp_current_total) * 100,.1);
+
+    /*************************************/
+    /**  Now we get our trend totals  **/
+
+    pr_trend_total = sum(pr_trend_actA, pr_trend_dropP, pr_trend_ontrackP,
+                         pr_trend_apibec_enrollP, pr_trend_apibec_successP, 
+                         pr_trend_attd, pr_trend_rd_mexcP, pr_trend_mt_mexcP, pr_trend_sc_mexcP);
+
+    pp_trend_total = sum(pp_trend_actA, pp_trend_dropP, pp_trend_ontrackP,
+                         pp_trend_apibec_enrollP, pp_trend_apibec_successP, 
+                         pp_trend_attd, pp_trend_rd_mexcP, pp_trend_mt_mexcP, pp_trend_sc_mexcP);
+
+    pct_trend_total = round((pr_trend_total / pp_trend_total) * 100,.1);
+
+    chelp_trend_total = sum(chelp_trend_actA, chelp_trend_dropP, chelp_trend_ontrackP,
+                            chelp_trend_apibec_enrollP, chelp_trend_apibec_successP,
+                            chelp_trend_attd, chelp_trend_rd_mexcP, chelp_trend_mt_mexcP, chelp_trend_sc_mexcP);
+
+
+    /***********************************************************/
+    /**  Now we get our trend and growth totals               **/
+    /**  This is trend total combined with the epas points    **/
+
+    pr_trendandgrowth_total = sum(pr_trend_total, pr_trend_epas_rdP, pr_trend_epas_mtP);
+    pp_trendandgrowth_total = sum(pp_trend_total, pp_trend_epas_rdP, pp_trend_epas_mtP);
+    pct_trendandgrowth_total = round((pr_trendandgrowth_total / pp_trendandgrowth_total) * 100,.1);
+
+    pr_trendandgrowth_rd = sum(pr_trend_rd_mexcP,pr_trend_epas_rdP);
+    pp_trendandgrowth_rd = sum(pp_trend_rd_mexcP,pp_trend_epas_rdP);
+    pct_trendandgrowth_rd = round((pr_trendandgrowth_rd / pp_trendandgrowth_rd) * 100,.1);
+
+    pr_trendandgrowth_mt = sum(pr_trend_mt_mexcP,pr_trend_epas_mtP);
+    pp_trendandgrowth_mt = sum(pp_trend_mt_mexcP,pp_trend_epas_mtP);
+    pct_trendandgrowth_mt = round((pr_trendandgrowth_mt / pp_trendandgrowth_mt) * 100,.1);
+
+    pr_trendandgrowth_sc = pr_trend_sc_mexcP;
+    pp_trendandgrowth_sc = pp_trend_sc_mexcP;
+    pct_trendandgrowth_sc = round((pr_trendandgrowth_sc / pp_trendandgrowth_sc) * 100,.1);
+
+    /*******************************************/
+    /**  Determine Performance Policy Level  **/
+
+    perf_policy_pr = round(sum(pr_current_total,pr_trendandgrowth_total),.0001);
+    perf_policy_pp = sum(pp_current_total,pp_trendandgrowth_total);
+    ** pofposs_pts= round((round(perf_policy_pr,.01) / round(perf_policy_pp,.01)) * 100,.1); *% of possible points;
+    pofposs_pts= round((perf_policy_pr / perf_policy_pp) * 100,.1); *% of possible points;
+
+    if (perf_policy_pp >= 21) and (pp_current_total >= 6) and (pp_trend_total >= 6) then do;
+                 if pofposs_pts < &pp_level_cp2                                  then perf_policy_level = 'Level 3';
+            else if pofposs_pts >= &pp_level_cp2 and pofposs_pts < &pp_level_cp1 then perf_policy_level = 'Level 2';
+            else if pofposs_pts >= &pp_level_cp1                                 then perf_policy_level = 'Level 1';
+            else                                                                      perf_policy_level = 'ERROR';
+    end;
+    else do; 
+                                                                                      perf_policy_level = 'Not Enough Data';
+    end;
+
+
+
+    /**************************************/
+    /**  Determine Principal Evaluation  **/
+
+        if pp_trendandgrowth_total >= 15 then do;
+            if (pct_trendandgrowth_total >= &prin_eval_cp) then prin_eval_level = 'ILE at Chief of Schools Discretion for Exceeds';
+          else prin_eval_level = 'Further Review';
+        end;
+        else prin_eval_level = 'Not Enough Data / Further Review';
+  
+      *******************************************************************************;
+      *** Variables with n<10 do not print                                         **;
+      *** Calculate total points and possible points                               **;
+      *** Note: no trend scores in 2008 for the attendance metric and psae metrics **;  
+      *** Note: no current status points or current status scores for              **;
+      ***      ap enrollment and ap success                                        **;
+
+      pr_currentandtrend_actA = sum(pr_current_actA,pr_trend_actA);
+      pr_currentandtrend_dropP = sum(pr_current_dropP,pr_trend_dropP);
+      pr_currentandtrend_ontrackP = sum(pr_current_ontrackP,pr_trend_ontrackP);
+      pr_currentandtrend_attd = sum(pr_current_attd,pr_trend_attd);
+      pr_currentandtrend_rd_mexcP = sum(pr_current_rd_mexcP, pr_trend_rd_mexcP);
+      pr_currentandtrend_mt_mexcP = sum(pr_current_mt_mexcP, pr_trend_mt_mexcP);
+      pr_currentandtrend_sc_mexcP = sum(pr_current_sc_mexcP, pr_trend_sc_mexcP);
+
+      pp_currentandtrend_actA = sum(pp_current_actA,pp_trend_actA);
+      pp_currentandtrend_dropP = sum(pp_current_dropP,pp_trend_dropP);
+      pp_currentandtrend_ontrackP = sum(pp_current_ontrackP,pp_trend_ontrackP);
+      pp_currentandtrend_attd = sum(pp_current_attd,pp_trend_attd);
+      pp_currentandtrend_rd_mexcP = sum(pp_current_rd_mexcP, pp_trend_rd_mexcP);
+      pp_currentandtrend_mt_mexcP = sum(pp_current_mt_mexcP, pp_trend_mt_mexcP);
+      pp_currentandtrend_sc_mexcP = sum(pp_current_sc_mexcP, pp_trend_sc_mexcP);
+
+run;
+
+/*
+proc contents data=perf_policy_a varnum;
+
+proc print data=perf_policy_a; 
+where unit = 1800;
+var unit schlname schl_id attdcurrent_ED
+             attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+             attdtrend_ED
+             attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+             attdCY attdCY_1 attdCY_2 attdCY_3;
+*/
+
+/***********************************************************************************************************************/
+/** Recieved email from Ryan on Tues August 20th, 2013:                                                               **/ 
+/**     Good Standing Ineligible List 2013 loaded to Coding Specs folder (EOM)                                        **/
+/** Pulled file into file structure listed in import file below                                                       **/
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2014\input\good_standing_ineligible_list2013.csv"
+      out=goodstand_eligible&year
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+proc sql;
+create table dup_83 as
+  (select unit, count(*) as dup_83
+     from goodstand_eligible&year
+   group by unit
+   having count(*) > 1);
+run;
+
+title1 'Duplicates in Good standing file';
+proc print data=dup_83;
+run;
+
+
+**************************************************************************;
+** Combine principal information with performance policy complete file  **;
+
+proc sort data=goodstand_eligible&year nodup; by unit;
+proc sort data=perf_policy_a; by unit;
+proc sort data=probation; by unit;
+
+
+ data perf_policy_prin;
+   merge perf_policy_a(in=a) probation schools goodstand_eligible&year; by unit;
+   if a;
+
+    length probation%eval(&year+1) $50. level%eval(&year+1) $30. prob_reason%eval(&year+1) $125.
+           current_desc rd_current_desc mt_current_desc sc_current_desc $20. 
+           rating trendandgrowth_desc rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc $75.;
+
+    level%eval(&year+1) = perf_policy_level;
+ 
+/******************************************************************************************************************/
+/**  For the most part, all schools in FY11_area  52, 27, and 30 should be                                       **/
+/**  Not applicable for the probation status.                                                                    **/
+/**                                                                                                              **/
+/** Achievement Academies should be “Not Applicable” for probation.  They are:                                   **/
+/**                                                                                                              **/
+/** SchlID	unit	School Name                                                                              **/
+/** 609743	7960	PHILLIPS AA HS                                                                           **/
+/** 610378	7660	CRANE AA                                                                                 **/
+/** 610374	7570	ROBESON AA HS                                                                            **/
+/** 610375	7580	TILDEN AA HS                                                                             **/
+/** 609675	7670	CHICAGO AA HS                                                                            **/
+/** 610401	7980	CLEMENTE AA HS                                                                           **/
+/** 610377	7650	SENN AA HS                                                                               **/
+/** 609706	7970	FENGER AA HS                                                                             **/
+/**                                                                                                              **/  
+/**  20110804 HJM:                                                                                               **/
+/**  Since no longer using FY11_area , use schltype to check for Charters                                        **/
+/**  if compress(FY11_area ) = '52' then probation2011 = 'Not Applicable';                                       **/
+/**                                                                                                              **/  
+/**  Good standing file replaces the 8.3 indicator                                                               **/
+/**                                                                                                              **/                                                                                                                
+/**  20110811 HJM:                                                                                               **/
+/**  Since no longer using FY11_area , Ryan suggested I use for all schools with a State ID in the 3000 range.   **/
+/**  Ryan checked, and the only FY11_area  27 schools that didn’t have a 3000 ID were Neil and Christopher,      **/
+/**  the two that we specifically allowed to have a probation status in last year’s code.  So this new           **/
+/**  definition will work for my purposes.                                                                       **/
+/**  THis replaces the following                                                                                 **/                                                                                                                
+/**      else if compress(FY11_area ) in ('27','30') then probation%eval(&year+1) = 'Not Applicable';            **/
+/**                                                                                                              **/
+/**  Per Ryan on 20130904 totally remove YCCS School ID 609686               **/
+/**                                                                                                              **/
+/**  Per Ryan on 20130904 force these schools to 3000 Schools               **/      
+/* BEACON THERAPEUTIC HS	 	Beacon Therapeutic HS	 			800003	 9018 */
+/* CAMELOT THERAPEUTIC HS		Camelot Therapeutic HS				800018	9607 */
+/* ESPERANZA THERAPEUTIC HS	 	Esperanza Therapeutic HS			800007	 9022 */
+/* HILLSIDE ACAD EAST THERAPEUTIC HS	Hillside Academy East Therapeutic HS		800008	9023 */
+/* JEWISH CHILD FAMILY THERAPEUTIC HS	Jewish Child Family Services Therapeutic HS	800011	 9026 */
+/* LAWRENCE HALL THERAPEUTIC HS		Lawrence Hall Therapeutic HS			800012	9027 */
+/* SOUTH CENTRAL THERAPEUTIC HS	 	South Central Therapeutic HS	 		800014	 9029 */
+/* UCAN THERAPEUTIC HS			UCAN Therapeutic HS				800016	9031 */
+
+     if schl_id = 609686 then delete;
+
+         if upcase(trim(schltype)) = 'CHARTER' then do;
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = 'Charter School';
+            end;
+
+    else if index(upcase(eh_ind),'ELEM') then do; 
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = 'Elementary School';
+            end;
+
+    else if index(upcase(eh_ind),'MIDDLE') then do; 
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = 'Middle School';
+            end;
+
+    else if (put(statunit,4.) >= 3000 and put(statunit,4.) < 4000) 
+         or schl_id in (800003,800018,800007,800008,800011,800012,800014,800016) then do;
+               probation%eval(&year+1) = 'Not Applicable'; prob_reason%eval(&year+1) = '3000 School';
+            end;
+
+    else if schl_id in (609743,610378,610374,610375,609675,610401,610377,609706) then do;
+             probation%eval(&year+1) = 'Not Applicable';prob_reason%eval(&year+1) = "Achievement Academy";
+            end;
+
+    else if goodstand_eligible = 'No' and compress(level%eval(&year+1)) NE ('Level3')  then do;
+               probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = '8.3 School';
+            end;
+
+    else if compress(level%eval(&year+1)) = 'NotEnoughData' then do;
+               probation%eval(&year+1) = 'Not on Probation'; prob_reason%eval(&year+1) = "Not enough data";
+            end;
+
+    else if (cp_mexcPCY < 10 and cp_mexcPCY NE . and cp_ttCY >=10 and compress(level%eval(&year+1)) NE ('Level3')) then do;  
+              probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = "PSAE Composite Meet Exceed less than 10";
+            end;
+
+    else if level%eval(&year+1) ='Level 3' then do;
+              probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = "Level 3";
+            end;
+
+    else if compress(level%eval(&year+1)) in ('Level1','Level2') and compress(probation&year = 'Probation') 
+        and compress(level&year) = 'Level3' and compress(probation%eval(&year-1)) = 'Probation' then do;
+             probation%eval(&year+1) = 'Probation'; prob_reason%eval(&year+1) = "Needs Two Years at Level 2";
+            end;
+
+    else do;
+             probation%eval(&year+1) = 'Not on Probation';    prob_reason%eval(&year+1) = "Met Good Standing Requirements";
+            end; 
+
+  ********************************************************************;
+  ** Set rating status current_desc and overall trendandgrowth_desc **;       
+
+       if level%eval(&year+1) = 'Level 1' then rating = 'Excellent Standing (Level 1)';
+  else if level%eval(&year+1) = 'Level 2' then rating = 'Good Standing (Level 2)';
+  else if level%eval(&year+1) = 'Level 3' then rating = 'Low Academic Standing (Level 3)';
+  else rating = 'Not Enough Data';
+
+  status = probation%eval(&year+1);
+
+  if pp_current_total  >= 9 then do;
+          if (pct_current_total < &current_desc_cp2) then current_desc = 'Below Average';
+     else if (pct_current_total >= &current_desc_cp2) and (pct_current_total < &current_desc_cp1) then current_desc = 'Average';
+     else if (pct_current_total >= &current_desc_cp1)  then current_desc = 'Above Average';
+     else current_desc = 'ERROR';
+  end;
+  else do; 
+     current_desc = 'Not Enough Data';
+  end;
+
+/*
+  if pp_trendandgrowth_total  >= 9 then do;
+          if (pct_trendandgrowth_total < &trendandgrowth_desc_cp2) then trendandgrowth_desc = 'Less than other CPS schools';
+     else if (pct_trendandgrowth_total >= &trendandgrowth_desc_cp2) and (pct_trendandgrowth_total < &trendandgrowth_desc_cp1) 
+                                                                   then trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (pct_trendandgrowth_total >= &trendandgrowth_desc_cp1) then trendandgrowth_desc = 'More than other CPS schools';
+     else trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     trendandgrowth_desc = 'Not Enough Data';
+  end;
+*/
+
+  if pp_trendandgrowth_total >= 9  then do;
+          if (round(pct_trendandgrowth_total,.1)  < &trendandgrowth_desc_cp2) then trendandgrowth_desc = 'Less than other CPS schools';
+     else if (round(pct_trendandgrowth_total,.1)  >= &trendandgrowth_desc_cp2) and (round(pct_trendandgrowth_total,.1)  < &trendandgrowth_desc_cp1) 
+                                                                   then trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (round(pct_trendandgrowth_total,.1)  >= &trendandgrowth_desc_cp1) then trendandgrowth_desc = 'More than other CPS schools';
+     else total_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+  **********************************************************;
+  ** Set rd_current_desc rd_trendandgrowth_desc **;
+
+  if (rd_mexcPCY >= 0 and rd_ttCY >= 10) then do;
+          if (round(rd_mexcPCY,.1) < &rd_current_desc_cp2)  then rd_current_desc = 'Below Average';
+     else if (round(rd_mexcPCY,.1) >= &rd_current_desc_cp2) and (round(rd_mexcPCY,.1) < &rd_current_desc_cp1) then rd_current_desc = 'Average';
+     else if (round(rd_mexcPCY,.1) >= &rd_current_desc_cp1) then rd_current_desc = 'Above Average';
+     else rd_current_desc = 'ERROR';
+  end;
+  else do; 
+     rd_current_desc = 'Not Enough Data';
+  end;
+
+/*
+  if pp_trendandgrowth_rd > 0 then do;
+          if (pct_trendandgrowth_rd  <  &rd_trendandgrowth_desc_cp2) then rd_trendandgrowth_desc = 'Less than other CPS schools';
+     else if (pct_trendandgrowth_rd  >= &rd_trendandgrowth_desc_cp2) and (pct_trendandgrowth_rd  < &rd_trendandgrowth_desc_cp1) 
+                                                                   then rd_trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (pct_trendandgrowth_rd  >= &rd_trendandgrowth_desc_cp1) then rd_trendandgrowth_desc = 'More than other CPS schools';
+     else rd_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     rd_trendandgrowth_desc = 'Not Enough Data';
+  end;
+*/
+
+
+  if pp_trendandgrowth_rd > 0  then do;
+          if (round(pct_trendandgrowth_rd,.1)  < &rd_trendandgrowth_desc_cp2) then rd_trendandgrowth_desc = 'Less than other CPS schools';
+     else if (round(pct_trendandgrowth_rd,.1)  >= &rd_trendandgrowth_desc_cp2) and (round(pct_trendandgrowth_rd,.1)  < &rd_trendandgrowth_desc_cp1) 
+                                                                   then rd_trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (round(pct_trendandgrowth_rd,.1)  >= &rd_trendandgrowth_desc_cp1) then rd_trendandgrowth_desc = 'More than other CPS schools';
+     else rd_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     rd_trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+  ****************************************************;
+  ** Set mt_current_desc and mt_trendandgrowth_desc **;
+
+  if (mt_mexcPCY >= 0 and mt_ttCY >= 10) then do;
+          if (round(mt_mexcPCY,.1) < &mt_current_desc_cp2) then mt_current_desc = 'Below Average';
+     else if (round(mt_mexcPCY,.1) >= &mt_current_desc_cp2) and (round(mt_mexcPCY,.1) < &mt_current_desc_cp1) then mt_current_desc = 'Average';
+     else if (round(mt_mexcPCY,.1) >= &mt_current_desc_cp1)  then mt_current_desc = 'Above Average';
+     else mt_current_desc = 'ERROR';
+  end;
+  else do; 
+     mt_current_desc = 'Not Enough Data';
+  end;
+
+
+  if pp_trendandgrowth_mt > 0  then do;
+          if (round(pct_trendandgrowth_mt,.1)  < &mt_trendandgrowth_desc_cp2) then mt_trendandgrowth_desc = 'Less than other CPS schools';
+     else if (round(pct_trendandgrowth_mt,.1)  >= &mt_trendandgrowth_desc_cp2) and (round(pct_trendandgrowth_mt,.1)  < &mt_trendandgrowth_desc_cp1) 
+                                                                   then mt_trendandgrowth_desc = 'About the same as other CPS schools';
+     else if (round(pct_trendandgrowth_mt,.1)  >= &mt_trendandgrowth_desc_cp1) then mt_trendandgrowth_desc = 'More than other CPS schools';
+     else mt_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     mt_trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+  ****************************************************;
+  ** Set sc_current_desc and sc_trendandgrowth_desc **;
+
+  if (sc_mexcPCY >= 0 and sc_ttCY >= 10) then do;
+          if (round(sc_mexcPCY,.1) < &sc_current_desc_cp2) then sc_current_desc = 'Below Average';
+     else if (round(sc_mexcPCY,.1) >= &sc_current_desc_cp2) and (round(sc_mexcPCY,.1) < &sc_current_desc_cp1) then sc_current_desc = 'Average';
+     else if (round(sc_mexcPCY,.1) >= &sc_current_desc_cp1)  then sc_current_desc = 'Above Average';
+     else sc_current_desc = 'ERROR';
+  end;
+  else do; 
+     sc_current_desc = 'Not Enough Data';
+  end;
+
+  if pr_trend_sc_mexcP NE .  then do;
+          if (pr_trend_sc_mexcP  < &sc_trendandgrowth_desc_cp1) then sc_trendandgrowth_desc = 'Less than other CPS schools';
+     else if (pr_trend_sc_mexcP  >= &sc_trendandgrowth_desc_cp1) then sc_trendandgrowth_desc = 'More than other CPS schools';
+     else sc_trendandgrowth_desc = 'ERROR';
+  end;
+  else do; 
+     sc_trendandgrowth_desc = 'Not Enough Data';
+  end;
+
+
+  ********************************;
+  ** Apply rule of 10 to output **;
+
+  %macro zero_out(yr);
+
+    %macro zero_out3 (sub1,sub2);
+        if &sub2.&yr < 10 then &sub1.&yr= .; 
+    %mend zero_out3; 
+    %zero_out3(actA, act_tt);
+    %zero_out3(dropP, dropN);
+    %zero_out3(ontrackP, ontrackT);
+    %zero_out3(apibec_enrollP, enroll_n);
+    %zero_out3(apibec_successP, apibec_enroll_n);
+    %zero_out3(rd_mexcP, rd_tt);
+    %zero_out3(mt_mexcP, mt_tt); 
+    %zero_out3(sc_mexcP, sc_tt); 
+
+  %mend zero_out;
+  %zero_out(CY); %zero_out(CY_1); %zero_out(CY_2); %zero_out(CY_3);
+
+  %macro zero_out1 (sub1,sub2);
+        if &sub2.CY < 10 then &sub1.CY= .; 
+  %mend zero_out1; 
+  %zero_out1(cp_mexcP, cp_tt);
+  %zero_out1(epas_rdP, epas_rdN);
+  %zero_out1(epas_mtP, epas_mtN);
+
+run;
+
+***create sasdataset with most variables;
+data hsppol.perform_policy_hs_&todayfm 
+     (Keep = /* schlname schl_id unit eh_ind schltype schlname_l area mailrun */
+             schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area eh_ind schltype address zipcode mailrun
+             perf_policy_pr perf_policy_pp pofposs_pts
+             probation%eval(&year+1) level%eval(&year+1) probation&year level&year probation%eval(&year-1) level%eval(&year-1)
+             prob_reason%eval(&year+1) 
+             
+             prin_eval_level pr_trendandgrowth_total pp_trendandgrowth_total pct_trendandgrowth_total
+
+             pr_current_total pp_current_total pct_current_total 
+             pr_trend_total pp_trend_total pct_trend_total 
+             chelp_trend_total 
+
+             pr_current_actA pr_current_dropP pr_current_ontrackP pr_current_attd
+             pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP
+             
+             pp_current_actA pp_current_dropP pp_current_ontrackP pp_current_attd
+             pp_current_rd_mexcP pp_current_mt_mexcP pp_current_sc_mexcP
+
+             pr_trend_actA pr_trend_dropP pr_trend_ontrackP pr_trend_attd 
+             pr_trend_apibec_enrollP pr_trend_apibec_successP
+             pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP  pr_trend_epas_rdP pr_trend_epas_mtP
+
+             pp_trend_actA pp_trend_dropP pp_trend_ontrackP pp_trend_attd 
+             pp_trend_apibec_enrollP pp_trend_apibec_successP
+             pp_trend_rd_mexcP pp_trend_mt_mexcP pp_trend_sc_mexcP  pp_trend_epas_rdP pp_trend_epas_mtP
+
+             chelp_trend_actA chelp_trend_dropP chelp_trend_ontrackP chelp_trend_attd 
+             chelp_trend_apibec_enrollP chelp_trend_apibec_successP 
+             chelp_trend_rd_mexcP chelp_trend_mt_mexcP chelp_trend_sc_mexcP  
+
+             actAcurrent_ED
+             actAcurrent_2A actAcurrent_1A actAcurrent_cyA
+             actAtrend_ED
+             actAtrend_2A actAtrend_3A actAtrend_a actAtrend_diff
+             actACY actACY_1 actACY_2 actACY_3
+             act_ttCY act_ttCY_1 act_ttCY_2 act_ttCY_3
+
+             dropPcurrent_ED
+             dropPcurrent_2A dropPcurrent_1A dropPcurrent_cyA
+             dropPtrend_ED
+             dropPtrend_2A dropPtrend_3A dropPtrend_a dropPtrend_diff
+             dropPCY dropPCY_1 dropPCY_2 dropPCY_3
+             dropNCY dropNCY_1 dropNCY_2 dropNCY_3
+
+             ontrackPcurrent_ED
+             ontrackPcurrent_2A ontrackPcurrent_1A ontrackPcurrent_cyA
+             ontrackPtrend_ED
+             ontrackPtrend_2A ontrackPtrend_3A ontrackPtrend_a ontrackPtrend_diff
+             ontrackPCY ontrackPCY_1 ontrackPCY_2 ontrackPCY_3
+             ontrackTCY ontrackTCY_1 ontrackTCY_2 ontrackTCY_3
+
+             attdcurrent_ED
+             attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+             attdtrend_ED
+             attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+             attdCY attdCY_1 attdCY_2 attdCY_3
+
+             apibec_enrollPtrend_ED
+             apibec_enrollPtrend_2A apibec_enrollPtrend_3A apibec_enrollPtrend_a apibec_enrollPtrend_diff
+             apibec_enrollPCY apibec_enrollPCY_1 apibec_enrollPCY_2 apibec_enrollPCY_3
+             enroll_nCY enroll_nCY_1 enroll_nCY_2 enroll_nCY_3
+
+             apibec_successPtrend_ED
+             apibec_successPtrend_2A apibec_successPtrend_3A apibec_successPtrend_a apibec_successPtrend_diff
+             apibec_successPCY apibec_successPCY_1 apibec_successPCY_2 apibec_successPCY_3
+             apibec_enroll_nCY apibec_enroll_nCY_1 apibec_enroll_nCY_2 apibec_enroll_nCY_3
+
+             rd_mexcPcurrent_ED
+             rd_mexcPcurrent_2A rd_mexcPcurrent_1A rd_mexcPcurrent_cyA
+             rd_mexcPtrend_ED
+             rd_mexcPtrend_2A rd_mexcPtrend_3A rd_mexcPtrend_a rd_mexcPtrend_diff
+             rd_mexcPCY rd_mexcPCY_1 rd_mexcPCY_2 rd_mexcPCY_3
+             rd_ttCY rd_ttCY_1 rd_ttCY_2 rd_ttCY_3
+
+             mt_mexcPcurrent_ED
+             mt_mexcPcurrent_2A mt_mexcPcurrent_1A mt_mexcPcurrent_cyA
+             mt_mexcPtrend_ED
+             mt_mexcPtrend_2A mt_mexcPtrend_3A mt_mexcPtrend_a mt_mexcPtrend_diff
+             mt_mexcPCY mt_mexcPCY_1 mt_mexcPCY_2 mt_mexcPCY_3
+             mt_ttCY mt_ttCY_1 mt_ttCY_2 mt_ttCY_3
+             
+             sc_mexcPcurrent_ED
+             sc_mexcPcurrent_2A sc_mexcPcurrent_1A sc_mexcPcurrent_cyA
+             sc_mexcPtrend_ED
+             sc_mexcPtrend_2A sc_mexcPtrend_3A sc_mexcPtrend_a sc_mexcPtrend_diff
+             sc_mexcPCY sc_mexcPCY_1 sc_mexcPCY_2 sc_mexcPCY_3
+             sc_ttCY sc_ttCY_1 sc_ttCY_2 sc_ttCY_3
+
+             cp_mexcPCY
+
+             epas_rdPCY epas_rdNCY  epas_rdPtile 
+             epas_rdP_cp15 epas_rdP_cp50 epas_rdP_cp85
+
+             epas_mtPCY epas_mtNCY epas_mtPtile
+             epas_mtP_cp15 epas_mtP_cp50 epas_mtP_cp85
+
+             rating status  
+             current_desc trendandgrowth_desc  
+             pct_trendandgrowth_rd pr_trendandgrowth_rd pp_trendandgrowth_rd
+             pct_trendandgrowth_mt pr_trendandgrowth_mt pp_trendandgrowth_mt
+             rd_current_desc mt_current_desc sc_current_desc
+             rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc
+
+             pr_currentandtrend_actA pr_currentandtrend_dropP pr_currentandtrend_ontrackP 
+             pr_currentandtrend_attd pr_currentandtrend_rd_mexcP pr_currentandtrend_mt_mexcP pr_currentandtrend_sc_mexcP
+             pp_currentandtrend_actA pp_currentandtrend_dropP pp_currentandtrend_ontrackP 
+             pp_currentandtrend_attd pp_currentandtrend_rd_mexcP pp_currentandtrend_mt_mexcP pp_currentandtrend_sc_mexcP
+
+             goodstand_eligible
+
+			 charter_ap_enrollP charter_ap_successP charter_ontrackP
+			 
+             AP_OptIn FOT_OptIn
+);
+  attrib /* schlname schl_id unit eh_ind schltype schlname_l area mailrun */
+         schlname schlname_l schl_id unit eh_ind statunit NetworkNumber NetworkDescription FY11_area eh_ind schltype address zipcode mailrun
+             perf_policy_pr perf_policy_pp pofposs_pts
+             probation%eval(&year+1) level%eval(&year+1) probation&year level&year probation%eval(&year-1) level%eval(&year-1)
+             prob_reason%eval(&year+1) 
+             
+             prin_eval_level pr_trendandgrowth_total pp_trendandgrowth_total pct_trendandgrowth_total
+
+             pr_current_total pp_current_total pct_current_total 
+             pr_trend_total pp_trend_total pct_trend_total 
+             chelp_trend_total 
+
+             pr_current_actA pr_current_dropP pr_current_ontrackP pr_current_attd
+             pr_current_rd_mexcP pr_current_mt_mexcP pr_current_sc_mexcP
+             
+             pp_current_actA pp_current_dropP pp_current_ontrackP pp_current_attd
+             pp_current_rd_mexcP pp_current_mt_mexcP pp_current_sc_mexcP
+
+             pr_trend_actA pr_trend_dropP pr_trend_ontrackP pr_trend_attd 
+             pr_trend_apibec_enrollP pr_trend_apibec_successP
+             pr_trend_rd_mexcP pr_trend_mt_mexcP pr_trend_sc_mexcP  pr_trend_epas_rdP pr_trend_epas_mtP
+
+             pp_trend_actA pp_trend_dropP pp_trend_ontrackP pp_trend_attd 
+             pp_trend_apibec_enrollP pp_trend_apibec_successP
+             pp_trend_rd_mexcP pp_trend_mt_mexcP pp_trend_sc_mexcP  pp_trend_epas_rdP pp_trend_epas_mtP
+
+             chelp_trend_actA chelp_trend_dropP chelp_trend_ontrackP chelp_trend_attd 
+             chelp_trend_apibec_enrollP chelp_trend_apibec_successP 
+             chelp_trend_rd_mexcP chelp_trend_mt_mexcP chelp_trend_sc_mexcP  
+
+             actAcurrent_ED
+             actAcurrent_2A actAcurrent_1A actAcurrent_cyA
+             actAtrend_ED
+             actAtrend_2A actAtrend_3A actAtrend_a actAtrend_diff
+             actACY actACY_1 actACY_2 actACY_3
+             act_ttCY act_ttCY_1 act_ttCY_2 act_ttCY_3
+
+             dropPcurrent_ED
+             dropPcurrent_2A dropPcurrent_1A dropPcurrent_cyA
+             dropPtrend_ED
+             dropPtrend_2A dropPtrend_3A dropPtrend_a dropPtrend_diff
+             dropPCY dropPCY_1 dropPCY_2 dropPCY_3
+             dropNCY dropNCY_1 dropNCY_2 dropNCY_3
+
+             ontrackPcurrent_ED
+             ontrackPcurrent_2A ontrackPcurrent_1A ontrackPcurrent_cyA
+             ontrackPtrend_ED
+             ontrackPtrend_2A ontrackPtrend_3A ontrackPtrend_a ontrackPtrend_diff
+             ontrackPCY ontrackPCY_1 ontrackPCY_2 ontrackPCY_3
+             ontrackTCY ontrackTCY_1 ontrackTCY_2 ontrackTCY_3
+
+             attdcurrent_ED
+             attdcurrent_2A attdcurrent_1A attdcurrent_cyA
+             attdtrend_ED
+             attdtrend_2A attdtrend_3A attdtrend_a attdtrend_diff
+             attdCY attdCY_1 attdCY_2 attdCY_3
+
+             apibec_enrollPtrend_ED
+             apibec_enrollPtrend_2A apibec_enrollPtrend_3A apibec_enrollPtrend_a apibec_enrollPtrend_diff
+             apibec_enrollPCY apibec_enrollPCY_1 apibec_enrollPCY_2 apibec_enrollPCY_3
+             enroll_nCY enroll_nCY_1 enroll_nCY_2 enroll_nCY_3
+
+             apibec_successPtrend_ED
+             apibec_successPtrend_2A apibec_successPtrend_3A apibec_successPtrend_a apibec_successPtrend_diff
+             apibec_successPCY apibec_successPCY_1 apibec_successPCY_2 apibec_successPCY_3
+             apibec_enroll_nCY apibec_enroll_nCY_1 apibec_enroll_nCY_2 apibec_enroll_nCY_3
+
+             rd_mexcPcurrent_ED
+             rd_mexcPcurrent_2A rd_mexcPcurrent_1A rd_mexcPcurrent_cyA
+             rd_mexcPtrend_ED
+             rd_mexcPtrend_2A rd_mexcPtrend_3A rd_mexcPtrend_a rd_mexcPtrend_diff
+             rd_mexcPCY rd_mexcPCY_1 rd_mexcPCY_2 rd_mexcPCY_3
+             rd_ttCY rd_ttCY_1 rd_ttCY_2 rd_ttCY_3
+
+             mt_mexcPcurrent_ED
+             mt_mexcPcurrent_2A mt_mexcPcurrent_1A mt_mexcPcurrent_cyA
+             mt_mexcPtrend_ED
+             mt_mexcPtrend_2A mt_mexcPtrend_3A mt_mexcPtrend_a mt_mexcPtrend_diff
+             mt_mexcPCY mt_mexcPCY_1 mt_mexcPCY_2 mt_mexcPCY_3
+             mt_ttCY mt_ttCY_1 mt_ttCY_2 mt_ttCY_3
+             
+             sc_mexcPcurrent_ED
+             sc_mexcPcurrent_2A sc_mexcPcurrent_1A sc_mexcPcurrent_cyA
+             sc_mexcPtrend_ED
+             sc_mexcPtrend_2A sc_mexcPtrend_3A sc_mexcPtrend_a sc_mexcPtrend_diff
+             sc_mexcPCY sc_mexcPCY_1 sc_mexcPCY_2 sc_mexcPCY_3
+             sc_ttCY sc_ttCY_1 sc_ttCY_2 sc_ttCY_3
+
+             cp_mexcPCY
+
+             epas_rdPCY epas_rdNCY  epas_rdPtile 
+             epas_rdP_cp15 epas_rdP_cp50 epas_rdP_cp85
+
+             epas_mtPCY epas_mtNCY epas_mtPtile
+             epas_mtP_cp15 epas_mtP_cp50 epas_mtP_cp85
+
+             rating status  
+             current_desc trendandgrowth_desc  
+             pct_trendandgrowth_rd pr_trendandgrowth_rd pp_trendandgrowth_rd
+             pct_trendandgrowth_mt pr_trendandgrowth_mt pp_trendandgrowth_mt
+             rd_current_desc mt_current_desc sc_current_desc
+             rd_trendandgrowth_desc mt_trendandgrowth_desc sc_trendandgrowth_desc
+
+             pr_currentandtrend_actA pr_currentandtrend_dropP pr_currentandtrend_ontrackP 
+             pr_currentandtrend_attd pr_currentandtrend_rd_mexcP pr_currentandtrend_mt_mexcP pr_currentandtrend_sc_mexcP
+             pp_currentandtrend_actA pp_currentandtrend_dropP pp_currentandtrend_ontrackP 
+             pp_currentandtrend_attd pp_currentandtrend_rd_mexcP pp_currentandtrend_mt_mexcP pp_currentandtrend_sc_mexcP
+
+             goodstand_eligible
+
+             charter_ap_enrollP charter_ap_successP charter_ontrackP
+
+             AP_OptIn FOT_OptIn 
+ label='';
+    set perf_policy_prin;
+
+   /*********************************************************************/
+   /** Per Ryan CICS Hawkins is spelled with some strange character in **/
+   /** the schools table: Chicago Intl Charter û Larry Hawkins         **/
+ 
+    if schl_id = 400108 then schlname_l = 'Chicago Intl Charter - Larry Hawkins';
+
+   /*****************************************************************************/
+   /** Per Will Clark email on Thursday 8-13-2011 removing network information **/
+
+   NetworkNumber  = .;
+
+run;
+
+
+proc sort data=hsppol.perform_policy_hs_&todayfm ; by schlname;
+
+proc contents data=hsppol.perform_policy_hs_&todayfm out=hs_performance_policy_layout varnum;
+
+proc export data=hs_performance_policy_layout
+   outfile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\perf_policy_hs_layout.csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+
+proc export data=hsppol.perform_policy_hs_&todayfm
+   outfile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\perf_policy_hs_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;	
+
+**%let todayfm= 20131004;
+goptions device=actximg;
+ods listing close;
+
+ods pdf file="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\perf_policy_hs_freq_&todayfm..pdf" style=sasweb notoc;
+%macro pp_freqs(odsletter,pp_title,pp_freq,pp_freq_out,wherefreq);
+  proc freq data=hsppol.perform_policy_hs_&todayfm noprint;
+    &wherefreq;
+    tables &pp_freq / missing out= &pp_freq_out;
+  run;
+
+   ods pdf(&odsletter) file="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\&pp_freq_out..pdf" style=sasweb;
+      title1 "&pp_title";
+      proc print data=&pp_freq_out; run;
+   ods pdf(&odsletter) close;
+
+%mend pp_freqs;
+%pp_freqs(a,Probation %eval(&year+1),probation%eval(&year+1),prob,);
+%pp_freqs(b,Level %eval(&year+1),level%eval(&year+1),level,%str(where index(upcase(eh_ind),'HIGH')>0));
+%pp_freqs(c,Probation Reason %eval(&year+1),prob_reason%eval(&year+1)*probation%eval(&year+1),probreason,);
+%pp_freqs(d,Probation %eval(&year+1) vs Probation &year, probation%eval(&year+1)*probation&year,probmovement,);
+%pp_freqs(e,Charter AP and FOT Opt In, AP_OptIn*FOT_OptIn ,OptIn,);
+%pp_freqs(f,Charter Rule Change - AP Enroll, charter_ap_enrollP,char_chang_en,);
+%pp_freqs(g,Charter Rule Change - AP Success, charter_ap_successP,char_chang_su,);
+%pp_freqs(h,Charter Rule Change - On Track, charter_ontrackP,char_chang_on,);
+%pp_freqs(i,Level %eval(&year+1) vs Level &year, level%eval(&year+1)*level&year,levelmovement,%str(where index(upcase(eh_ind),'HIGH')>0));
+ 
+ods pdf close;
+
+
+
+/* proc sort data = hsppol.perform_policy_hs_&todayfm; by unit; */
+proc sort data = schools; by unit;
+proc sort data = epas_a; by unit;
+
+data epas (keep = schlname schl_id unit
+                  epas_mt_rank epas_mtPtile epas_rd_rank epas_rdPtile
+                  epas_rdNCY epas_mtNCY epas_rdPCY epas_mtPCY);
+  attrib schlname schl_id unit
+                  epas_mt_rank epas_mtPtile epas_rd_rank epas_rdPtile
+                  epas_rdNCY epas_mtNCY epas_rdPCY epas_mtPCY label='';
+  merge epas_mt_c epas_rd_c schools epas_a (in=in_epas); by unit;
+
+  if in_epas;
+run;
+
+title1 "Listing of EPAS rankings";
+proc print data=epas;
+
+proc export data=epas
+   outfile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\perf_policy_hs_epas_listing_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+
+***************************************;
+** Compare previous run to this year **;
+goptions device=actximg;
+
+%macro pp_comp(oldfile);
+options orientation=landscape;
+ods pdf file="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\output\perf_policy_hs_compare_&todayfm._to_&oldfile..pdf" style=sasweb notoc;
+
+proc sort data=hsppol.perform_policy_hs_&todayfm; by unit schlname;                      
+proc sort data=hsppol.perform_policy_hs_&oldfile; by unit schlname;
+
+title "Comparison of HS Performance Policy from &todayfm and &oldfile";
+proc compare base=hsppol.perform_policy_hs_&todayfm compare=hsppol.perform_policy_hs_&oldfile listall maxprint=20000 CRITERION=.0001;
+id unit schlname;
+run;
+
+ods pdf close;
+
+%mend pp_comp;
+**%pp_comp(20130829);
+**%pp_comp(20130923);
+**%pp_comp(20131004);
+%pp_comp(20131007);
+
+******************************************;
+** Build file needed for reports macro  **;
+
+proc import datafile="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\%eval(&year+1)\input\hs_school_data_macro_2013.csv"
+      out=hs_macro_old_a
+      dbms=dlm
+      replace;
+      delimiter=',';
+      getnames=yes;
+      GUESSINGROWS=600;
+run;
+
+data hs_macro_old_b;
+  set hs_macro_old_a;
+
+  schlid = schl_id * 1;
+
+  keep schlid perf_policy%eval(&year) perf_policy%eval(&year-1) psaecp%eval(&year-1) psaecp%eval(&year-2);
+;
+
+run;
+
+data hs_macro_old_c;
+  set hs_macro_old_b;
+
+  schl_id = schlid;
+
+  keep schl_id perf_policy%eval(&year) perf_policy%eval(&year-1) psaecp%eval(&year-1) psaecp%eval(&year-2);
+
+run;
+
+proc sort data=hs_macro_old_c; by schl_id;
+proc sort data=hsppol.perform_policy_hs_&todayfm; by schl_id;
+  
+data hs_pp_report_prep (keep= schlname schl_id schlid_text area_text
+                              probation%eval(&year+1) probation%eval(&year) probation%eval(&year-1) 
+                              level%eval(&year+1) level%eval(&year) level%eval(&year-1)
+                              perf_policy%eval(&year+1) perf_policy%eval(&year) perf_policy%eval(&year-1)
+                              psaecp%eval(&year) psaecp%eval(&year-1) psaecp%eval(&year-2)
+                              turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2)
+                              ayp%eval(&year-1) fed_status state_status
+                              rd_mexcPCY_3t rd_mexcPCY_2t rd_mexcPCY_1t rd_mexcPCYt rd_mexcPcurrent_cyAt
+                              pts_mexc_rd_current rd_mexcPtrend_diff pts_mexc_rd_trend pts_mexc_rd
+                              mt_mexcPCY_3t mt_mexcPCY_2t mt_mexcPCY_1t mt_mexcPCYt mt_mexcPcurrent_cyAt
+                              pts_mexc_mt_current mt_mexcPtrend_diff pts_mexc_mt_trend pts_mexc_mt
+			                  sc_mexcPCY_3t sc_mexcPCY_2t sc_mexcPCY_1t sc_mexcPCYt sc_mexcPcurrent_cyAt
+                              pts_mexc_sc_current sc_mexcPtrend_diff pts_mexc_sc_trend pts_mexc_sc
+                              actACY_3 actACY_2 actACY_1 actACY actAcurrent_cyA 
+                              pts_actA_current actAtrend_diff pts_actA_trend pts_actA
+                              dropPCY_3t dropPCY_2t dropPCY_1t dropPCYt dropPcurrent_cyAt
+                              pts_dropP_current	dropPtrend_diff	pts_dropP_trend	pts_dropP	
+                              attdCY_3t attdCY_2t attdCY_1t attdCYt attdcurrent_cyAt 
+                              pts_attd_current attdtrend_diff pts_attd_trend pts_attd 
+                              ontrackPCY_3t ontrackPCY_2t ontrackPCY_1t ontrackPCYt ontrackPcurrent_cyAt
+                              pts_ontrackP_current ontrackPtrend_diff pts_ontrackP_trend pts_ontrackP
+                              apibec_enrollPCY_3t apibec_enrollPCY_2t apibec_enrollPCY_1t apibec_enrollPCYt apibec_enrollPtrend_at	
+                              pts_apibec_enrollP_current apibec_enrollPtrend_diff pts_apibec_enrollP_trend pts_apibec_enrollP	
+                              apibec_successPCY_3t apibec_successPCY_2t apibec_successPCY_1t apibec_successPCYt	apibec_successPtrend_at	
+                              pts_apibec_successP_current apibec_successPtrend_diff pts_apibec_successP_trend pts_apibec_successP	
+                              epas_rdPCYt epas_rdPtile2	epas_rdPCT 
+                              epas_mtPCYt epas_mtPtile2	epas_mtPCT	
+                              unit schlname_l networkcompress
+);
+    attrib schlname schl_id schlid_text area_text
+           probation%eval(&year+1) probation%eval(&year) probation%eval(&year-1) 
+           level%eval(&year+1) level%eval(&year) level%eval(&year-1)
+           perf_policy%eval(&year+1) perf_policy%eval(&year) perf_policy%eval(&year-1)
+           psaecp%eval(&year) psaecp%eval(&year-1) psaecp%eval(&year-2)
+           turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2)
+           ayp%eval(&year-1) fed_status state_status
+           rd_mexcPCY_3t rd_mexcPCY_2t rd_mexcPCY_1t rd_mexcPCYt rd_mexcPcurrent_cyAt
+           pts_mexc_rd_current rd_mexcPtrend_diff pts_mexc_rd_trend pts_mexc_rd
+           mt_mexcPCY_3t mt_mexcPCY_2t mt_mexcPCY_1t mt_mexcPCYt mt_mexcPcurrent_cyAt
+           pts_mexc_mt_current mt_mexcPtrend_diff pts_mexc_mt_trend pts_mexc_mt
+	       sc_mexcPCY_3t sc_mexcPCY_2t sc_mexcPCY_1t sc_mexcPCYt sc_mexcPcurrent_cyAt
+           pts_mexc_sc_current sc_mexcPtrend_diff pts_mexc_sc_trend pts_mexc_sc
+           actACY_3 actACY_2 actACY_1 actACY actAcurrent_cyA 
+           pts_actA_current actAtrend_diff pts_actA_trend pts_actA
+           dropPCY_3t dropPCY_2t dropPCY_1t dropPCYt dropPcurrent_cyAt
+           pts_dropP_current	dropPtrend_diff	pts_dropP_trend	pts_dropP	
+           attdCY_3t attdCY_2t attdCY_1t attdCYt attdcurrent_cyAt 
+           pts_attd_current attdtrend_diff pts_attd_trend pts_attd 
+           ontrackPCY_3t ontrackPCY_2t ontrackPCY_1t ontrackPCYt ontrackPcurrent_cyAt
+           pts_ontrackP_current ontrackPtrend_diff pts_ontrackP_trend pts_ontrackP
+           apibec_enrollPCY_3t apibec_enrollPCY_2t apibec_enrollPCY_1t apibec_enrollPCYt apibec_enrollPtrend_at	
+           pts_apibec_enrollP_current apibec_enrollPtrend_diff pts_apibec_enrollP_trend pts_apibec_enrollP	
+           apibec_successPCY_3t apibec_successPCY_2t apibec_successPCY_1t apibec_successPCYt	apibec_successPtrend_at	
+           pts_apibec_successP_current apibec_successPtrend_diff pts_apibec_successP_trend pts_apibec_successP	
+           epas_rdPCYt epas_rdPtile2	epas_rdPCT 
+           epas_mtPCYt epas_mtPtile2	epas_mtPCT	
+           unit schlname_l networkcompress
+    label="";
+    merge hsppol.perform_policy_hs_&todayfm (in=in_pp) hs_macro_old_c; by schl_id;
+
+	if in_pp;
+
+length schlid_text $20. area_text perf_policy%eval(&year+1) $60.
+       psaecp%eval(&year)
+       turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2)
+       ayp%eval(&year-1) fed_status state_status $20.;
+
+   schlid = put(schl_id,6.);
+   schlid_text = "School ID: " || put(schlid,6.);
+   area_text = "Network: " || NetworkDescription;
+
+   if perf_policy_pp > 0 then
+     perf_policy%eval(&year+1) 
+          = compress(round(perf_policy_pr,.01)) || " of " || compress(round(perf_policy_pp,.01))  || " (" || compress(put(pofposs_pts,5.1)) || "%)";
+   else perf_policy%eval(&year+1) = "";
+   
+     if cp_mexcPCY NE . then psaecp%eval(&year) = compress(round(cp_mexcPCY,.1)) || "% (" || compress(%eval(&year)) || ")";
+   else psaecp%eval(&year) = "";
+
+   turn%eval(&year) = "";
+   turn%eval(&year-1) = "";
+   turn%eval(&year-2) = "";
+
+   ayp%eval(&year-1) = "";
+   fed_status = "";
+   state_status = "";
+
+   %macro pl_sub(sub,pl);
+         if pr_current_&sub._&pl.P NE . then pts_&pl._&sub._current = "(" || compress(put(round(pr_current_&sub._&pl.P,.01),5.2)) || " points)";
+       else pts_&pl._&sub._current = "";
+         if pr_trend_&sub._&pl.P NE . then pts_&pl._&sub._trend = "(" || compress(put(round(pr_trend_&sub._&pl.P,.01),5.2)) || " points)";
+	   else pts_&pl._&sub._trend = "";
+
+	   length pr_&sub._&pl.P pp_&sub._&pl.P 8.;
+	   format pr_&sub._&pl.P pp_&sub._&pl.P 8.4;
+	   pr_&sub._&pl.P = sum(pr_current_&sub._&pl.P,pr_trend_&sub._&pl.P);
+	   pp_&sub._&pl.P = sum(pp_current_&sub._&pl.P,pp_trend_&sub._&pl.P);
+
+         if index(upcase(&sub._&pl.Pcurrent_ED),'YES') or index(upcase(&sub._&pl.Ptrend_ED),'YES') 
+           then  pts_&pl._&sub = compress(round(pr_&sub._&pl.P,.01)) || " of " || compress(round(pp_&sub._&pl.P,.01));
+       else pts_&pl._&sub = "";
+   %mend pl_sub;
+   %pl_sub(rd,mexc);
+   %pl_sub(mt,mexc);
+   %pl_sub(sc,mexc);
+
+   %macro sub(sub);
+         if pr_current_&sub NE . then pts_&sub._current = "(" || compress(round(pr_current_&sub,1.)) || " points)";
+       else pts_&sub._current = "";
+         if pr_trend_&sub NE . then pts_&sub._trend = "(" || compress(round(pr_trend_&sub,1.)) || " points)";
+	   else pts_&sub._trend = "";
+         if index(upcase(&sub.current_ED),'YES') or index(upcase(&sub.trend_ED),'YES') then pts_&sub 
+            = compress(round(sum(pr_current_&sub,pr_trend_&sub),1.)) || " of " || compress(round(sum(pp_current_&sub,pp_trend_&sub),1.));
+       else pts_&sub = "";
+   %mend sub;
+   %sub(actA);
+   %sub(dropP);
+   %sub(attd);
+   %sub(ontrackP);
+
+   %macro sub2(sub);
+       pts_&sub._current = "";
+         if pr_trend_&sub NE . then pts_&sub._trend = "(" || compress(round(pr_trend_&sub,1.)) || " points)";
+	   else pts_&sub._trend = "";
+         if index(upcase(&sub.trend_ED),'YES') then pts_&sub = compress(round(pr_trend_&sub,1.)) || " of " || compress(round(pp_trend_&sub,1.));
+       else pts_&sub = "";
+   %mend sub2;
+   %sub2(apibec_enrollP);
+   %sub2(apibec_successP);
+
+  %macro epas(epassub); 
+     if epas_&epassub.Ptile NE . then do;
+         if epas_&epassub.Ptile >= 13 then do;
+                if mod(epas_&epassub.Ptile,10) = 1 then epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "st");
+		   else if mod(epas_&epassub.Ptile,10) = 2 then epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "nd");
+		   else if mod(epas_&epassub.Ptile,10) = 3 then epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "rd");
+		   else epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "th");
+		 end;
+         else do; 
+		        if epas_&epassub.Ptile = 1 then epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "st");
+		   else if epas_&epassub.Ptile = 2 then epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "nd");
+		   else if epas_&epassub.Ptile = 3 then epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "rd");
+		   else epas_&epassub.Ptile2 = compress(put(epas_&epassub.Ptile,3.) || "th");
+		 end;
+	 end;
+	 else epas_&epassub.Ptl = "";
+
+	   if pr_trend_epas_&epassub.P NE . then epas_&epassub.PCT = compress(round(pr_trend_epas_&epassub.P,1.)) || " of " || compress(round(pp_trend_epas_&epassub.P,1.));
+     else epas_&epassub.PCT = "";
+
+     if epas_&epassub.PCY NE . then epas_&epassub.PCYt = compress(round(epas_&epassub.PCY ,.1)) || "%"; else epas_&epassub.PCYt = "";
+
+   %mend epas;
+   %epas(rd); %epas(mt);
+ 
+
+   networkcompress=compress(NetworkDescription);
+
+   %macro metric(var);
+     %macro cy(var2);
+	   if &var.&var2 NE . then &var.&var2.t = compress(round(&var.&var2 ,.1)) || "%"; else &var.&var2.t = "";
+     %mend cy;
+     %cy(CY); %cy(CY_1); %cy(CY_2); %cy(CY_3); %cy(current_cyA);
+   %mend metric;
+   %metric(rd_mexcP); %metric(mt_mexcP); %metric(sc_mexcP); %metric(dropP); %metric(attd); %metric(ontrackP); 
+
+  
+   %macro metric2(var);
+     %macro cy2(var2);
+	   if &var.&var2 NE . then &var.&var2.t = compress(round(&var.&var2 ,.1)) || "%"; else &var.&var2.t = "";
+     %mend cy2;
+     %cy2(CY); %cy2(CY_1); %cy2(CY_2); %cy2(CY_3); %cy2(trend_a);
+   %mend metric2;
+   %metric2(apibec_enrollP); %metric2(apibec_successP); 
+run;
+
+
+
+ods tagsets.ExcelXP file="\\co-sas01.csc.cps.k12.il.us\dept_projects\performance_policy\2014\output\hs_pp_report_prep_&todayfm..xml"
+            options (Embedded_titles = 'no' Orientation = 'landscape' sheet_interval='none');
+
+proc report data=hs_pp_report_prep nowd headskip 
+style(header)=[foreground=black background=lightgrey borderwidth=4];
+ column schlname schl_id schlid_text area_text
+        ("Probation" probation%eval(&year+1) probation%eval(&year) probation%eval(&year-1)) 
+        ("Rating" level%eval(&year+1) level%eval(&year) level%eval(&year-1))
+        ("Points" perf_policy%eval(&year+1) perf_policy%eval(&year) perf_policy%eval(&year-1))
+        ("PSAE Composite" psaecp%eval(&year) psaecp%eval(&year-1) psaecp%eval(&year-2))
+        ("Turnaround" turn%eval(&year) turn%eval(&year-1) turn%eval(&year-2))
+        ("NCLB" ayp%eval(&year) fed_status state_status)
+        ("PSAE Reading" rd_mexcPCY_3t rd_mexcPCY_2t rd_mexcPCY_1t rd_mexcPCYt rd_mexcPcurrent_cyAt
+                        pts_mexc_rd_current rd_mexcPtrend_diff pts_mexc_rd_trend pts_mexc_rd)
+        ("PSAE Math" mt_mexcPCY_3t mt_mexcPCY_2t mt_mexcPCY_1t mt_mexcPCYt mt_mexcPcurrent_cyAt
+                        pts_mexc_mt_current mt_mexcPtrend_diff pts_mexc_mt_trend pts_mexc_mt)
+        ("PSAE Science" sc_mexcPCY_3t sc_mexcPCY_2t sc_mexcPCY_1t sc_mexcPCYt sc_mexcPcurrent_cyAt
+                        pts_mexc_sc_current sc_mexcPtrend_diff pts_mexc_sc_trend pts_mexc_sc)
+        ("ACT Scores" 	actACY_3 actACY_2 actACY_1 actACY actAcurrent_cyA
+                        pts_actA_current actAtrend_diff	pts_actA_trend pts_actA)
+        ("1-Year Dropout Rate" 	dropPCY_3t dropPCY_2t dropPCY_1t dropPCYt dropPcurrent_cyAt
+                                pts_dropP_current dropPtrend_diff pts_dropP_trend pts_dropP)
+        ("Adjusted Attendance Rate" attdCY_3t attdCY_2t attdCY_1t attdCYt attdcurrent_cyAt
+                                    pts_attd_current attdtrend_diff pts_attd_trend pts_attd)
+        ("Freshman On-Track" ontrackPCY_3t ontrackPCY_2t ontrackPCY_1t ontrackPCYt ontrackPcurrent_cyAt
+                             pts_ontrackP_current ontrackPtrend_diff pts_ontrackP_trend	pts_ontrackP)
+        ("AP Enrollment" apibec_enrollPCY_3t apibec_enrollPCY_2t apibec_enrollPCY_1t apibec_enrollPCYt apibec_enrollPtrend_at
+                         pts_apibec_enrollP_current apibec_enrollPtrend_diff pts_apibec_enrollP_trend pts_apibec_enrollP)
+        ("AP Success" apibec_successPCY_3t apibec_successPCY_2t apibec_successPCY_1t apibec_successPCYt apibec_successPtrend_at
+                         pts_apibec_successP_current apibec_successPtrend_diff pts_apibec_successP_trend pts_apibec_successP)
+        ("EPAS Gains Reading" epas_rdPCYt epas_rdPtile2 epas_rdPCT)
+        ("EPAS Gains Math" epas_mtPCYt epas_mtPtile2 epas_mtPCT)
+        unit schlname_l 
+        ("rand" networkcompress);
+
+  define schlname / 'schlname';
+  define schl_id / 'schl_id';
+  define schlid_text / 'schlid_text';
+  define area_text / 'area_text';
+  define probation2014 / 'probation2014';
+  define probation2013 / 'probation2013';
+  define probation2012 / 'probation2012';
+  define level2014 / 'level2014';
+  define level2013 / 'level2013';
+  define level2012 / 'level2012';
+  define perf_policy2014 / 'perf_policy2014';
+  define perf_policy2013 / 'perf_policy2013';
+  define perf_policy2012 / 'perf_policy2012';
+  define psaecp2013 / 'psaecp2013';
+  define psaecp2012 / 'psaecp2012';
+  define psaecp2011 / 'psaecp2011';
+  define turn2013 / 'turn2013';
+  define turn2012 / 'turn2012';
+  define turn2011 / 'turn2011';
+  define ayp2013 / 'ayp2013';
+  define fed_status / 'fed_status';
+  define state_status / 'state_status';
+  define rd_mexcPCY_3t / 'rd_mexcPCY_3';
+  define rd_mexcPCY_2t / 'rd_mexcPCY_2';
+  define rd_mexcPCY_1t / 'rd_mexcPCY_1';
+  define rd_mexcPCYt / 'rd_mexcPCY';
+  define rd_mexcPcurrent_cyAt / 'rd_mexcPcurrent_cyA';
+  define pts_mexc_rd_current / 'pts_mexc_rd_current';
+  define rd_mexcPtrend_diff / 'rd_mexcPtrend_diff';
+  define pts_mexc_rd_trend / 'pts_mexc_rd_trend';
+  define pts_mexc_rd / 'pts_mexc_rd';
+  define mt_mexcPCY_3t / 'mt_mexcPCY_3';
+  define mt_mexcPCY_2t / 'mt_mexcPCY_2';
+  define mt_mexcPCY_1t / 'mt_mexcPCY_1';
+  define mt_mexcPCYt / 'mt_mexcPCY';
+  define mt_mexcPcurrent_cyAt / 'mt_mexcPcurrent_cyA';
+  define pts_mexc_mt_current / 'pts_mexc_mt_current';
+  define mt_mexcPtrend_diff / 'mt_mexcPtrend_diff';
+  define pts_mexc_mt_trend / 'pts_mexc_mt_trend';
+  define pts_mexc_mt / 'pts_mexc_mt';
+  define sc_mexcPCY_3t / 'sc_mexcPCY_3';
+  define sc_mexcPCY_2t / 'sc_mexcPCY_2';
+  define sc_mexcPCY_1t / 'sc_mexcPCY_1';
+  define sc_mexcPCYt / 'sc_mexcPCY';
+  define sc_mexcPcurrent_cyAt / 'sc_mexcPcurrent_cyA';
+  define pts_mexc_sc_current / 'pts_mexc_sc_current';
+  define sc_mexcPtrend_diff / 'sc_mexcPtrend_diff';
+  define pts_mexc_sc_trend / 'pts_mexc_sc_trend';
+  define pts_mexc_sc / 'pts_mexc_sc';
+  define actACY_3 / 'actACY_3';
+  define actACY_2 / 'actACY_2';
+  define actACY_1 / 'actACY_1';
+  define actACY / 'actACY';
+  define actAcurrent_cyA / 'actAcurrent_cyA';
+  define pts_actA_current / 'pts_actA_current';
+  define actAtrend_diff / 'actAtrend_diff';
+  define pts_actA_trend / 'pts_actA_trend';
+  define pts_actA / 'pts_actA';
+  define dropPCY_3t / 'dropPCY_3';
+  define dropPCY_2t / 'dropPCY_2';
+  define dropPCY_1t / 'dropPCY_1';
+  define dropPCYt / 'dropPCY';
+  define dropPcurrent_cyAt / 'dropPcurrent_cyA';
+  define pts_dropP_current / 'pts_dropP_current';
+  define dropPtrend_diff / 'dropPtrend_diff';
+  define pts_dropP_trend / 'pts_dropP_trend';
+  define pts_dropP / 'pts_dropP';
+  define attdCY_3t / 'attdCY_3';
+  define attdCY_2t / 'attdCY_2';
+  define attdCY_1t / 'attdCY_1';
+  define attdCYt / 'attdCY';
+  define attdcurrent_cyAt / 'attdcurrent_cyA';
+  define pts_attd_current / 'pts_attd_current';
+  define attdtrend_diff / 'attdtrend_diff';
+  define pts_attd_trend / 'pts_attd_trend';
+  define pts_attd / 'pts_attd';
+  define ontrackPCY_3t / 'ontrackPCY_3';
+  define ontrackPCY_2t / 'ontrackPCY_2';
+  define ontrackPCY_1t / 'ontrackPCY_1';
+  define ontrackPCYt / 'ontrackPCY';
+  define ontrackPcurrent_cyAt / 'ontrackPcurrent_cyA';
+  define pts_ontrackP_current / 'pts_ontrackP_current';
+  define ontrackPtrend_diff / 'ontrackPtrend_diff';
+  define pts_ontrackP_trend / 'pts_ontrackP_trend';
+  define pts_ontrackP / 'pts_ontrackP';
+  define apibec_enrollPCY_3t / 'apibec_enrollPCY_3';
+  define apibec_enrollPCY_2t / 'apibec_enrollPCY_2';
+  define apibec_enrollPCY_1t / 'apibec_enrollPCY_1';
+  define apibec_enrollPCYt / 'apibec_enrollPCY';
+  define apibec_enrollPtrend_at / 'apibec_enrollPtrend_a';
+  define pts_apibec_enrollP_current / 'pts_apibec_enrollP_current';
+  define apibec_enrollPtrend_diff / 'apibec_enrollPtrend_diff';
+  define pts_apibec_enrollP_trend / 'pts_apibec_enrollP_trend';
+  define pts_apibec_enrollP / 'pts_apibec_enrollP';
+  define apibec_successPCY_3t / 'apibec_successPCY_3';
+  define apibec_successPCY_2t / 'apibec_successPCY_2';
+  define apibec_successPCY_1t / 'apibec_successPCY_1';
+  define apibec_successPCYt / 'apibec_successPCY';
+  define apibec_successPtrend_at / 'apibec_successPtrend_a';
+  define pts_apibec_successP_current / 'pts_apibec_successP_current';
+  define apibec_successPtrend_diff / 'apibec_successPtrend_diff';
+  define pts_apibec_successP_trend / 'pts_apibec_successP_trend';
+  define pts_apibec_successP / 'pts_apibec_successP';
+  define epas_rdPCYt / 'epas_rdPCY';
+  define epas_rdPtile2 / 'epas_rdPtile2';
+  define epas_rdPCT / 'epas_rdPCT';
+  define epas_mtPCYt / 'epas_mtPCY';
+  define epas_mtPtile2 / 'epas_mtPtile2';
+  define epas_mtPCT / 'epas_mtPCT';
+  define unit / 'unit';
+  define schlname_l / 'schlname_l';
+  define networkcompress / 'networkcompress';
+
+
+run;
+
+ods tagsets.ExcelXP close;

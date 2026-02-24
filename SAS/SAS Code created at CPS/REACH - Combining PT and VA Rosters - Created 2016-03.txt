@@ -1,0 +1,184 @@
+data PT_ROSTER_LIST_A    ;
+%let _EFIERR_ = 0; /* set the ERROR detection macro variable */
+   infile '\\Admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\perf_task_roster_list.csv' delimiter =',' MISSOVER DSD lrecl=32767 firstobs=2 ;
+                informat Date $21. ;
+                informat Var1 $3. ;
+                informat Var2 $3. ;
+                informat filename $50. ;
+
+                format Date $21. ;
+                format Var1 $3. ;
+                format Var2 $3. ;
+                format filename $50. ;
+             input
+                         Date $
+                         Var1 $
+                         Var2 $
+                         filename $
+             ;
+if _ERROR_ then call symputx('_EFIERR_',1);  /* set ERROR detection macro variable */
+run;
+
+data PT_Roster_List_b (keep=emp_id_char pt_filename);
+  set PT_Roster_List_a;
+
+      if date NE '';
+
+      length emp_id_char $10.;
+      start_sub=anydigit(filename,1);
+      length_sub=index(filename,'.') - start_sub;
+      emp_id_char = substr(filename,start_sub,length_sub);
+
+	  rename filename = pt_filename;
+
+run;
+
+
+data value_added_roster_list_a    ;
+%let _EFIERR_ = 0; /* set the ERROR detection macro variable */
+   infile '\\Admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\value_added_roster_list.csv' delimiter =',' MISSOVER DSD lrecl=32767 firstobs=2 ;
+                informat Date $21. ;
+                informat Var1 $3. ;
+                informat Var2 $3. ;
+                informat filename $50. ;
+
+                format Date $21. ;
+                format Var1 $3. ;
+                format Var2 $3. ;
+                format filename $50. ;
+             input
+                         Date $
+                         Var1 $
+                         Var2 $
+                         filename $
+             ;
+if _ERROR_ then call symputx('_EFIERR_',1);  /* set ERROR detection macro variable */
+run;
+
+data value_added_roster_list_b (keep=emp_id_char va_filename);
+  set value_added_roster_list_a;
+
+      if date NE '';
+
+      length emp_id_char $10.;
+      start_sub=anydigit(filename,1);
+      length_sub=index(filename,'.') - start_sub;
+      emp_id_char = substr(filename,start_sub,length_sub);
+
+      rename filename = va_filename;
+run;
+
+proc sort data = PT_ROSTER_LIST_B; by emp_id_char;
+proc sort data = value_added_roster_list_b; by emp_id_char;
+
+data combine_rosters_a;
+  merge PT_ROSTER_LIST_B (in=inPT) value_added_roster_list_b (in=inVA); by emp_id_char;
+  
+  length combine_rosters $7.;
+       if inPT and inVA then combine_rosters = 'Both';
+  else if inPT and not inVA then combine_rosters = 'PT Only';
+  else if not inPT and inVA then combine_rosters = 'VA Only';
+  else combine_rosters = 'ERROR';
+run;
+
+title1 'Error on Combine Rosters';
+Proc print data=combine_rosters_a;
+where combine_rosters = 'ERROR'; 
+run;
+
+title1 "Report Breakdown";
+proc freq data=combine_rosters_a;
+  tables combine_rosters;
+run;
+
+%macro roster_type(var);
+  title1 "&var.";
+  proc print data=combine_rosters_a (obs=10); 
+  where trim(combine_rosters) = "&var.";
+  run;
+%mend roster_type;
+%roster_type(Both); %roster_type(PT Only); %roster_type(VA Only);
+
+data combine_rosters_b (keep=emp_id_char input_file1 input_file2 output_file_c  combine_rosters pt_filename va_filename);
+  set combine_rosters_a;
+ /*set google.googledistrict_20150831; */
+  
+     length input_file1 input_file2 output_file_c $150.;
+     if combine_rosters = 'Both' then do;
+         input_file1 = 'M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\pdf\' || pt_filename;
+         input_file2 = 'M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\pdf\' || va_filename; 
+	     output_file_c = 
+        trim(emp_id_char) ||'_1415_PT_VAM.pdf';
+	 end;
+else if combine_rosters = 'PT Only' then do;
+         input_file1 = 'M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\pdf\' || pt_filename;
+         input_file2 = 'M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\NoVAData.pdf'; 
+	     output_file_c = 
+        trim(emp_id_char) ||'_1415_PT.pdf';
+	 end;
+else if combine_rosters = 'VA Only' then do;
+         input_file1 = 'M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\pdf\' || va_filename; 
+         input_file2 = 'M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\NoPTData.pdf'; 
+	     output_file_c = 
+        trim(emp_id_char) ||'_1415_VAM.pdf';
+	 end;
+
+run;
+
+
+
+filename out1
+/* "M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Practice Summary\Reports\copyPPPS.txt"; */
+"\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\combine_rosters.txt";
+run;
+
+** options linesize=256;
+
+data combine_rosters_c;
+set combine_rosters_b;
+file out1 lrecl=500;
+
+if _N_= 1 then do;
+put "M:";
+put 'cd "M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\PT_VAM Rosters_1415"';
+end;
+
+     if trim(combine_rosters) = 'Both' then do;
+        pathm = 'pdftk "' || trim(input_file1) || '"  "' || trim(input_file2) || '" cat output "' || trim(output_file_c) ||'"'; 
+     end;
+else if trim(combine_rosters) = 'VA Only' then do;
+        pathm =  'copy "' || trim(input_file1) || '"  "' || trim(output_file_c) ||'"'; 
+     end;
+else if trim(combine_rosters) = 'PT Only' then do;
+        pathm =  'copy "' || trim(input_file1) || '"  "' || trim(output_file_c) ||'"'; 
+     end;
+else pathm = 'quit';
+
+put pathm;
+
+run;
+
+data combine_rosters_listfile (keep =  employee_id file_name display_name);
+  set  combine_rosters_b;
+
+      rename emp_id_char = employee_id
+	         output_file_c = file_name;
+
+    	length display_name $50.;
+        if trim(combine_rosters) = 'Both' then display_name = '1415_Performance Task/Value-Add Roster';
+   else if trim(combine_rosters) = 'VA Only' then display_name = '1415_Value-Add Roster';
+   else if trim(combine_rosters) = 'PT Only' then display_name = '1415_Performance Task Roster';
+   else display_name = 'quit';
+
+run;
+
+proc export data=combine_rosters_listfile
+   outfile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Combine_PT_and_VA_Rosters\ClientFiles.txt"
+   dbms=dlm
+   replace;
+   delimiter='|';
+run;
+
+
+
+	**  M:\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\pdfs\perf_task_rosters_000002019.pdf;

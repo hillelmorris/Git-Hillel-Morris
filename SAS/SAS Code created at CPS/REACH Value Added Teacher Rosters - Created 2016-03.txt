@@ -1,0 +1,394 @@
+libname sample "\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Rosters\Sample_Data\";
+libname std_data "F:\SASfiles\accountability\users\cnpagan\";
+libname std_rost "\\admin\deptdata\CEO\OA\PDP\Value-Added\2014-2015 Value-Added files\Results\NWEA_10052015_CORRECTED_MONTHS_YEARS\";
+libname nwea "\\ADMIN\deptdata\CEO\OA\PDP\Value-Added\2014-2015 Value-Added files\Final Data\";
+libname org "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Data Export";
+
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take today's date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today                                             **;
+
+data _null_;
+
+    call symput('todayfm',substr(put(today(),mmddyy10.),7,4)||
+                          substr(put(today(),mmddyy10.),1,2)||
+                          substr(put(today(),mmddyy10.),4,2)|| '_' ||
+						  substr(put(TIME(),hhmm.),1,2) ||
+						  substr(put(TIME(),hhmm.),4,2)
+			   ); 
+    
+	
+run;
+data _null_;
+put "&todayfm";
+run;
+
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  create table staff_a as
+  Select * from connection to odbc 
+  (select cast(staff_employee_id as int) as emp_id_num, staff_name as staff_name_x
+     from k12intel_DW.DTBL_STAFF
+   where 1=1
+     and isnumeric(staff_employee_id)=1
+  );
+
+  create table student_a as
+  Select * from connection to odbc 
+  (select student_id, student_name as student_name_x
+     from k12intel_DW.DTBL_STUDENTS
+   where 1=1
+     and isnumeric(student_id)=1 
+  );
+
+Disconnect from odbc; 
+quit;
+
+data student_b;
+ set student_a;
+     std_id_num=student_id*1;
+run;
+
+/* BRING IN NEEDED DATA */
+data REACH_check (keep=employee_id1 REACH_VA_SCORE_DETAIL);
+  set org.reach_summative_20151123_1508;
+  	if employee_id1 = 103201;
+
+run;
+  
+
+
+
+/* Use this file to limit to teachers that had a value added score */
+data REACH_summ_a (keep = emp_id_num emp_id_char);
+  set org.reach_summative_20151123_1508;
+  	if REACH_VA_SCORE_DETAIL  = 'IVA';
+
+    rename employee_id1 = emp_id_num
+	       employee_id = emp_id_char;      
+run;
+
+proc sort data=REACH_summ_a; by emp_id_num;
+
+proc sql;
+create table reach_summ_cnt as
+  select emp_id_num, count(*) as emp_id_count
+  from REACH_summ_a
+  group by emp_id_num
+  having count(*) > 1;
+quit; 
+run;
+
+
+/* Student Roster file. */
+%macro skip;
+proc import 
+ datafile='\\admin\deptdata\CEO\OA\PDP\Value-Added\2014-2015 Value-Added files\Results\NWEA_10052015_CORRECTED_MONTHS_YEARS\full_roster_2015-12-11.csv'
+ out=std_rost.student_rosters_20151211
+ DBMS=dlm replace;
+ delimiter=',';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+%mend skip;
+
+data wcer_file_a;
+   set std_rost.student_rosters_20151211;
+
+
+   emp_id_char = teacher_id;
+   if notdigit(compress(teacher_id),1) = 0 then emp_id_num = teacher_id * 1; else emp_id_num = 0;
+   std_id_char = student_id;
+   std_id_num = student_id * 1;
+   drop teacher_id;
+
+run;
+
+data wcer_file_check;
+  set wcer_file_a;
+
+  if emp_id_num = 34708 and std_id_num = 50234241;
+run;
+
+/*
+title1 "Teacher ID is not numeric";
+proc print data=wcer_file_a;
+where  notalpha(emp_id_char,1) <> 0;
+run;
+*/
+proc sort data=wcer_file_a; by emp_id_num;
+
+data wcer_file_b;
+  merge REACH_summ_a (in=in_keep) wcer_file_a; by emp_id_num;
+  
+  if in_keep;
+run;
+ 
+
+%macro sub(sub);
+data REACH_student_roster_&sub._a2 (keep=emp_id_num emp_id_char std_id_num std_id_char grade &sub&._va_exclusions &sub&._responsibility &sub._small_class_ind);
+  set wcer_file_b;
+**set std_rost.student_rosters_20151130;
+
+/*
+dropped_missing_Pretest = dropped because student was missing Pretest(s)
+dropped_missing_demo = dropped because student was missing demographics
+dropped_missing_linkage = dropped because student was missing roster data
+swamped_min_dose = dropped due to small weight
+swamped_small_class = dropped due to class having small weigh
+*/
+
+     if (dropped_missing_Pretest = 1 
+     or dropped_invalid_Pretest = 1 
+     or dropped_invalid_Posttest = 1) then &sub&._va_exclusions = 'No Pretest / Post-test';
+
+else if (dropped_missing_linkage = 1 
+      or dropped_student_deleted_roster = 1 or 
+         dropped_roster_status = 1) then &sub&._va_exclusions = 'Roster verification';
+
+else if dropped_retention = 1 then &sub&._va_exclusions = 'Retention';
+
+else if dropped_access = 1 then  &sub&._va_exclusions = 'ACCESS';
+
+else if dropped_iaa = 1 then  &sub&._va_exclusions = 'IAA / DLM';
+
+else if dropped_attendance = 1 then  &sub&._va_exclusions = 'Attendance'; 
+
+else if (swamped_min_dose = 1 
+     or swamped_small_class = 1) then  &sub&._va_exclusions = 'Small Weight';
+
+else &sub&._va_exclusions = '';
+/*
+else if dropped_missing_demo = 1 then &sub&._va_exclusions = 'No Demographic Data';
+else if swamped_small_class = 1 then  &sub&._va_exclusions = 'Small Classroom';
+else if dropped_missing_linkage	= 1 then &sub&._va_exclusions = 'Roster verification';
+else if dropped_student_deleted_roster = 1 then &sub&._va_exclusions = 'Deleted';
+else if dropped_roster_status = 1 then &sub&._va_exclusions = 'Invalid Roster Status';
+*/
+
+
+   if swamped_small_class = 1 then &sub._small_class_ind = 'Yes';
+  
+   if index(upcase(subject),upcase("&sub."))>0;
+
+   length &sub&._responsibility 8.;
+   &sub&._responsibility = round(dose,.01);
+run;
+
+proc sort data=REACH_student_roster_&sub._a2; by emp_id_num emp_id_char std_id_num std_id_char grade;
+%mend sub;
+%sub(math); %sub(read);
+
+
+data REACH_student_roster_a3;
+  merge REACH_student_roster_read_a2 REACH_student_roster_math_a2; by emp_id_num emp_id_char std_id_num std_id_char grade;
+
+  if read_responsibility = . then read_responsibility = 0;
+  if math_responsibility = . then math_responsibility = 0;
+
+  length read_included math_included $3.;
+  if read_responsibility = 0 then read_included = 'No'; else read_included = 'Yes';
+  if math_responsibility = 0 then math_included = 'No'; else math_included = 'Yes';
+
+run;
+
+%macro sub2(var1,var2);
+  title "&var2 - List of exclusions returned";
+  proc freq data=REACH_student_roster_a3;
+    table &var1._va_exclusions / missing;
+  run;
+
+
+  proc freq data=REACH_student_roster_a3;
+    table &var1._small_class_ind / missing;
+  run;
+  
+%mend sub2;
+%sub2(math,Math); %sub2(read,Reading);
+
+proc sort data=REACH_student_roster_a3; by emp_id_num;
+proc sort data=staff_a nodupkey; by emp_id_num;
+
+data REACH_student_roster_a4;
+  merge REACH_student_roster_a3 (in=in_roster) staff_a; by emp_id_num;
+
+   if in_roster;
+
+   staff_name= compress(staff_name_x,"',.");
+
+run;
+
+proc sort data=REACH_student_roster_a4; by std_id_num;
+proc sort data=student_b nodupkey; by std_id_num;
+
+data REACH_student_roster_a5 (keep=emp_id_num emp_id_char staff_name std_id_num std_id_char student_name grade 
+                                   read_responsibility read_va_exclusions read_included 
+                                   math_responsibility math_va_exclusions math_included);
+     attrib emp_id_num emp_id_char staff_name std_id_num std_id_char student_name grade 
+                                   read_responsibility read_va_exclusions read_included 
+                                   math_responsibility math_va_exclusions math_included label="";
+  merge REACH_student_roster_a4 (in=in_roster) student_b; by std_id_num;
+
+   if in_roster;
+
+   student_name= tranwrd(student_name_x,"',.","");
+   
+
+run;
+
+proc sort data=REACH_student_roster_a5; by emp_id_num;
+
+data REACH_student_roster_a6 ;
+  set REACH_student_roster_a5  end=EOF; by emp_id_num;
+      lines + 1 ;
+   if lines > 8 or first.emp_id_num then do ;
+        page + 1 ;
+        lines = 0 ;
+   end ;
+   if EOF then call symput('totpages',left(put(page,3.))) ;
+ run ; 
+
+/*
+proc freq data=REACH_student_roster_a3;
+  table math_responsibility*math_va_exclusions read_responsibility*read_va_exclusions;
+run;
+*/
+
+proc sql;
+create table macro_calls as 
+(select emp_id_num, emp_id_char, staff_name, count(*) as row_count
+   from REACH_student_roster_a6
+group by emp_id_num, emp_id_char, staff_name);
+
+**proc print data=macro_calls;
+
+data macro_calls_b;
+   set macro_calls;
+
+     file "\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\macrocalls_emp_001.sas";
+     put '%rosters(' emp_id_num ',' emp_id_char ',' staff_name ',' row_count ')';
+	 **put _all_;
+  run;
+
+proc sort data=REACH_student_roster_a6; by emp_id_num grade student_name;
+
+ods listing close;
+ods escapechar='^';
+options ls=196 ps=49   Orientation = Landscape device='ACTXIMG' noquotelenmax;
+
+%macro rosters(emp_id_num, emp_id_char ,name, row_count);
+ods pdf file="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\pdf\value_added_rosters_&emp_id_char..pdf";
+
+  title1 '^S={just=Left preimage="\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\CPS Logo.JPG" posttext=""';
+  title2 ".";
+  title3 f="Helvetica/bold" h=18pt j=c "Value Added Roster for 2014-2015";
+  title4 f="Helvetica/bold" h=15pt j=c "&name - (Staff ID: &emp_id_char.)";  
+
+  title5 f="Helvetica" h=10pt j=l color=royalblue "The roster below includes the students who were included in your value-added calculations for the 2014-2015 School Year.  Reading and Math instructional responsibility are based on the teacher's schedule in IMPACT 
+  and the teacher's responses in Roster Verification.  Students may be weighted at less than 100% if: a) the teacher indicated that he/she provided only partial instructional responsibility for the student in that
+  subject; and/or b) the student was enrolled in the class for only a portion of the year.  In order to receive an individual value-added in either subject, the teacher must have an unweighted student count of 10 or
+  more, and a weighted student count of 5 or more.";
+
+  
+  proc report data=REACH_student_roster_a6 (firstobs=1 obs=12) nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+	/*style(lines)={fontfamily=Arial font_size=10pt leftmargin=.25in just=l protectspecialchars=off};*/
+    where emp_id_num = &emp_id_num;  
+
+    column page std_id_char student_name grade 
+           ('Reading Value-Added' read_responsibility read_va_exclusions read_included)
+           ('Math Value-Added' math_responsibility math_va_exclusions math_included);
+
+	define page / noprint order;
+    define std_id_char  / display left 'Student ID';
+    define Student_name / display left 'Student Name';
+    define Grade / display center 'Grade*Level*(SY15)';
+	%macro sub(sub);
+	   define &sub._responsibility / display center format=percent9. 'Instructional*Resonsibility';
+	   define &sub._va_exclusions / display left 'Value-Added*Exclusion ^{super 1}';
+       define &sub._included / center display 'Included in Value Added';
+	%mend sub;
+	%sub(read); %sub(math);
+
+	%if (&row_count < 12) %then %do;
+	compute after / style = [color=royalblue];
+   	  length TEXT1 TEXT2 TEXT3 TEXT4 TEXT5 TEXT6 TEXT7 TEXT8 /* TEXT9 TEXT10 TEXT11 TEXT12*/ $200. ;
+
+      text1="^{super 1} Value-Added exclusions are reasons that students were excluded from the value-added calculation for technical reasons. Specific reasons include:";
+      text2="No Pretest/Post-test: Student is missing or has invalid pretest score and/or post-test score.";
+      text3="Small Weight: Student was included in teacher's roster for less than 3 days.";
+      text4="IAA / DLM: Student has an IAA / DLM indicator on his/her IEP in either the pretest or post-test year.";
+      text5="ACCESS: Student's ACCESS Literacy score was below 3.5 in either the pretest or post-test year.";
+      text6="Attendance: Student was not included due to less than 50% attendance for the school year.";
+      text7="Retention: Student was retained.";
+      text8="Roster Verification: Student was removed through roster verification process.";
+ 
+      LINE @10 TEXT1 $200. ;
+      LINE @15 TEXT2 $200. ;
+      LINE @15 TEXT3 $200. ; 
+      LINE @15 TEXT4 $200. ;
+      LINE @15 TEXT5 $200. ;
+      LINE @15 TEXT6 $200. ;
+      LINE @15 TEXT7 $200. ;
+      LINE @15 TEXT8 $200. ;
+    endcomp; 
+    %end;
+ run;
+
+
+  title1 '^S={just=Left preimage="\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\CPS Logo.JPG" posttext=""';
+  title2 ".";
+  title3 f="Helvetica/bold" h=18pt j=c "Value Added Roster for 2014-2015";
+  title4 f="Helvetica/bold" h=15pt j=c "&name - (Staff ID: &emp_id_char.)";  
+  
+  
+  proc report data=REACH_student_roster_a6 (firstobs=13 obs=max) nowd headskip split = '*' 
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+	/*style(lines)={fontfamily=Arial font_size=10pt leftmargin=.25in just=l protectspecialchars=off};*/
+    where emp_id_num = &emp_id_num;  
+
+    column page std_id_char student_name grade 
+           ('Reading Value-Added' read_responsibility read_va_exclusions read_included)
+           ('Math Value-Added' math_responsibility math_va_exclusions math_included);
+
+	define page / noprint order;
+    define std_id_char  / display left 'Student ID';
+    define Student_name / display left 'Student Name';
+    define Grade / display center 'Grade*Level*(SY15)';
+	%macro sub(sub);
+	   define &sub._responsibility / display center format=percent9. 'Instructional*Resonsibility';
+	   define &sub._va_exclusions / display left 'Value-Added*Exclusion ^{super 1}';
+       define &sub._included / center display 'Included in Value Added';
+	%mend sub;
+	%sub(read); %sub(math);
+
+	compute after / style = [color=royalblue];
+   	  length TEXT1 TEXT2 TEXT3 TEXT4 TEXT5 TEXT6 TEXT7 TEXT8 /* TEXT9 TEXT10 TEXT11 TEXT12*/ $200. ;
+
+      text1="^{super 1} Value-Added exclusions are reasons that students were excluded from the value-added calculation for technical reasons. Specific reasons include:";
+      text2="No Pretest/Post-test: Student is missing or has invalid pretest score and/or post-test score.";
+      text3="Small Weight: Student was included in teacher's roster for less than 3 days.";
+      text4="IAA / DLM: Student has an IAA / DLM indicator on his/her IEP in either the pretest or post-test year.";
+      text5="ACCESS: Student's ACCESS Literacy score was below 3.5 in either the pretest or post-test year.";
+      text6="Attendance: Student was not included due to less than 50% attendance for the school year.";
+      text7="Retention: Student was retained.";
+      text8="Roster Verification: Student was removed through roster verification process.";
+ 
+      LINE @10 TEXT1 $200. ;
+      LINE @15 TEXT2 $200. ;
+      LINE @15 TEXT3 $200. ; 
+      LINE @15 TEXT4 $200. ;
+      LINE @15 TEXT5 $200. ;
+      LINE @15 TEXT6 $200. ;
+      LINE @15 TEXT7 $200. ;
+      LINE @15 TEXT8 $200. ;
+    endcomp; 
+
+ run;
+
+ ods pdf close;
+%mend rosters;
+%include '\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\macrocalls_emp_001.sas';

@@ -1,0 +1,1973 @@
+libname obsdata '\\admin\appdata\DataWarehouse\REACH_Interface_TNL\Latest_Files\SAS_Versions\';
+
+%let obs_extract_date = 02162016; /* \\admin\appdata\DataWarehouse\REACH_Interface_TNL\Latest_Files\ObservationRatingsExtract_&obs_extract_date.csv */
+%let planinfo_date = 20160203; /* \\admin\appdata\DataWarehouse\REACH_Interface_TNL\Latest_Files\TNL_Staff_PlanInfo_Details_&planinfo_date..csv */
+%let payroll_date  = 20160206; /* \\admin\appdata\DataWarehouse\REACH\Payroll_Data\Staff_Payroll_Info_&payroll_date..csv */
+
+%let data_check = ;
+/*if emp_id_num in 
+(244309,233668,232199,231638,224499,223682,223669,219244,214848,213906,209220,208811,206839,205234,204665,204526,203468,200044,150802,149177,148421,146387,144343,
+142432,141779,140769,140162,139945,138719,137334,132019,130800,129787,125469,124854,124840,117807,115452,115425,105846,104361,104280,103299,103175,101364,100720,
+99503,99221,98793,98756,98722,96433,94590,94573,94386,93910,93714,92207,90504,90412,87848,87600,85160,85038,81333,81263,80244,78759,78296,78258,78242,77995,76390,
+76037,75673,74310,74288,74198,73957,71821,71815,69402,67045,66917,66715,65982,65115,58278,58107,57039,54995,54459,54248,54233,52211,50177,47514,47090,46035,45682,
+45613,45480,43672,41552,41489,41404,40323,37218,33406,33284,33094,33068,32872,32842,30709,28760,26498,26178,25478,24863,24522,22822,22780,21352,21094,20737,19800,
+13937,13159,9761,7065,5944,2476,2186);
+*/
+ods listing close;
+options ls=196 ps=49   Orientation = Landscape device='ACTXIMG' noquotelenmax mprint symbolgen;
+ods escapechar='^';
+
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take today's date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today       **;
+
+data _null_;
+
+    call symput('todayfm',substr(put(today(),mmddyy10.),7,4)||
+                          substr(put(today(),mmddyy10.),1,2)||
+                          substr(put(today(),mmddyy10.),4,2)
+			   ); 
+    
+	
+run;
+
+%macro all_ready_read_in;
+/* This is the TNL Observation Report we receive from TNL */
+/* WHen teacher is located at multiple schools, show at multiple schools but when rolled up to network only show under one network. */
+
+proc import 
+ datafile="\\admin\appdata\DataWarehouse\REACH_Interface_TNL\Latest_Files\ObservationRatingsExtract_&obs_extract_date..csv"
+ out=obsdata.ObsRatingsExtract_&obs_extract_date
+ DBMS=dlm replace;
+ delimiter=',';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+
+/* This is a file we share with TNL that contains the plan type */
+
+proc import 
+ datafile="\\admin\appdata\DataWarehouse\REACH_Interface_TNL\Latest_Files\TNL_Staff_PlanInfo_Details_&planinfo_date..csv"
+ out=obsdata.TNLStaffPlanInfo_&planinfo_date
+ DBMS=dlm replace;
+ delimiter=',';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+
+/* Bring in HRIT Payroll Data */
+
+proc import 
+ datafile="\\admin\appdata\DataWarehouse\REACH\Payroll_Data\Staff_Payroll_Info_&payroll_date..csv"
+ out=obsdata.staff_payroll_&payroll_date
+ DBMS=dlm replace;
+ delimiter=',';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+
+/* Bring in RLS Days */
+
+proc import 
+ datafile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\RLS_calender_days_2015_2016.csv"
+ out=obsdata.RLS_Calendar_Days
+ DBMS=dlm replace;
+ delimiter=',';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+%mend all_ready_read_in;
+
+data RLS_Cal_A;
+  set obsdata.RLS_Calendar_Days;
+
+  if Date = Today();
+
+  call symput('rls_days_percent',rls_day_percent); 
+  call symput('rls_days',rls_day_percent); 
+run;
+
+data _null_;
+
+    payroll_d = "&payroll_date";
+    call symput('pay_date',substr(payroll_d,5,2)||'-'||substr(payroll_d,7,2)||'-'||substr(payroll_d,1,4)); 
+
+run;
+
+/*
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  CREATE TABLE Staff_School_Info_a AS
+  Select * from connection to odbc 
+(SELECT DISTINCT staff_employee_id as emp_id_char
+        ,A.staff_name as staff_name_x
+		,C.SCHOOL_CODE as SY16_SCHOOL_ID
+		,C.SCHOOL_NAME AS SY16_SCHOOL_NAME
+		,C.SCHOOL_SUBGROUP AS SY16_NETWORK
+		,C.SCHOOL_SHORT_NAME AS SY16_SCHOOL_SHORT_NAME
+
+FROM [k12intel_DW].[DTBL_STAFF] AS A
+LEFT JOIN [k12intel_DW].DTBL_STAFF_ASSIGNMENTS AS B
+on a.STAFF_KEY = b.STAFF_KEY
+LEFT JOIN [k12intel_DW].DTBL_SCHOOLS AS C
+ON B.SCHOOL_KEY=C.SCHOOL_KEY
+
+WHERE B.SCHOOL_STAFF_YEAR='2015-2016' and C.SCHOOL_SUBGROUP <> '--');
+
+QUIT;
+*/
+proc SQL;
+  Connect to odbc(datasrc="ODS_PROD"); 
+  CREATE TABLE Org_Info_a AS
+  Select * from connection to odbc 
+ (select ORG_UNIT, UNIT_NAME
+  from [ODSSupport].[dbo].[CPS_ODS_ORG_UNITS_V]
+ );
+quit;
+
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+
+  CREATE TABLE Staff_Info_a AS
+  Select * from connection to odbc 
+ (SELECT DISTINCT staff_employee_id as emp_id_char, staff_employee_id, staff_last_name, staff_first_name, staff_status
+    FROM [k12intel_DW].[DTBL_STAFF]
+ );
+
+  CREATE TABLE School_Info_a AS
+  Select * from connection to odbc 
+ (SELECT SCHOOL_YEAR,school_code, SCHOOL_SUBGROUP AS network_x, school_short_name as school_short_name_x
+    FROM [k12intel_DW].[DTBL_SCHOOL_ANNUAL_ATTRIBS]
+  where school_year not in ('@ERR','--')
+  order by school_code,school_year
+ );
+
+  CREATE TABLE School_date_a AS
+  Select * from connection to odbc 
+  (select ds.SCHOOL_CODE, convert(varchar(10),DATE_VALUE,101) as dv, LOCAL_ENROLL_DAY_IN_SCHOOL_YR as possible_school_days
+   from K12INTEL_DW.DTBL_SCHOOLS DS
+   inner join K12INTEL_DW.DTBL_SCHOOL_DATES DSD
+   on ds.school_key =dsd.SCHOOL_KEY
+   where 1=1
+     and local_school_year = '2015-2016'
+     /*--and date_value = CONVERT (date, GETDATE())
+	 and date_value = CONVERT (date, &pay_date)*/
+	 and date_value = CONVERT (date, '02-06-2016')
+     and SCHOOL_STATUS = 'Open'
+  );
+
+QUIT;
+
+
+data School_date_b;
+  set School_date_a;
+
+  payroll_d = "&payroll_date";
+  pd = substr(payroll_d,5,2)||'/'||substr(payroll_d,7,2)||'/'||substr(payroll_d,1,4);
+  if pd=dv;
+  
+run;
+
+proc univariate data=School_date_b modes;
+          var possible_school_days;
+          output out=School_date_c mode=mode;
+run;
+
+data _null_;
+  set School_date_c;
+    call symput('possible_school_days',mode);
+run;
+
+data school_info_b (keep=school_code network_x school_short_name_x);
+  set school_info_a; by school_code school_year;
+
+    if last.school_code;
+run;
+
+data org_info_b (keep= school_code network_o school_short_name_o);
+  set org_info_a; 
+     
+    length school_code $10. network_o $50. school_short_name_o $80.;
+    school_code = org_unit;
+	network_o = '';
+	school_short_name_o = upcase(unit_name);
+
+run;
+
+proc sort data=school_info_b; by school_code;
+proc sort data=org_info_b; by school_code;
+
+data school_info_c (keep= school_code network school_short_name);
+  merge school_info_b (in=in_sch) org_info_b (in=in_org); by school_code;
+   
+     length network_0 network $50. school_short_name_0 school_short_name $80.;
+     if in_sch then do;
+	   network_0 = network_x;
+	   school_short_name_0 = school_short_name_x;
+	 end;
+else if in_org then do;
+	   network_0 = network_o;
+	   school_short_name_0 = school_short_name_o;
+	 end;
+
+     school_short_name = translate(school_short_name_0," ",",'");
+     network = translate(network_0," ",",'");
+
+run;
+
+
+data Staff_Info_b (keep = emp_id_num emp_id_char staff_last_name staff_first_name staff_status);
+  set Staff_Info_a;
+
+    if staff_employee_id in ('UNKN','--','NR','N/A','FS','@ERR') then delete;
+    if notalpha(staff_employee_id,1) then emp_id_num = staff_employee_id * 1; else delete;
+run;
+
+proc sort data= Staff_Info_b; by emp_id_num;
+
+data TNL_PLAN_DATA_A;
+  set obsdata.TNLStaffPlanInfo_&planinfo_date;
+
+  if index(Unique_Person_key,'C') > 0 then delete;
+  **if Unique_Person_Key in (33777,110485,210525,210906,212907,229961,241093);
+run;
+
+proc freq data=TNL_PLAN_DATA_A;
+  table StaffPlanName;
+run;
+
+proc print data=TNL_PLAN_DATA_A;
+where index(StaffPlanName,'TAT') > 0;
+
+/** First we get the expected observations for all employees **/
+
+data TNL_EXPECTED_PLAN_DATA_B (keep=emp_id_num 
+                                    plan_file_plan_type 
+                                    plan_file_formal_c plan_file_informal_c plan_file_case_review_c
+                                    plan_file_formal plan_file_informal plan_file_case_review);
+attrib emp_id_num 
+       plan_file_plan_type 
+       plan_file_formal_c plan_file_informal_c plan_file_case_review_c
+       plan_file_formal plan_file_informal plan_file_case_review label='';
+  set TNL_PLAN_DATA_A;
+
+    **emp_id_num = EmployeeID * 1;
+
+    emp_id_num = Unique_Person_key * 1;
+	
+    &data_check;
+
+	if emp_id_num = . then delete;
+
+	if index(upcase(StaffPlanName),'PRINCIPAL')
+	or index(upcase(StaffPlanName),'NETWORK')
+	or index(upcase(StaffPlanName),'NULL')
+	or index(upcase(StaffPlanName),'CENTRAL') then delete;
+
+    plan_file_plan_type = substr(StaffPlanName,1,index(StaffPlanName,'(') - 1);
+    plan_file_formal_c = substr(StaffPlanName,index(StaffPlanName,'(')+1,1);
+
+         if index(upcase(StaffPlanName),'TAT') then do;
+		    plan_file_plan_type = 'TAT';
+            plan_file_formal_c = 0;
+            plan_file_informal_c = 0;
+		    plan_file_case_review_c = 0;
+         end;
+	else if index(upcase(StaffPlanName),'INFORMAL') then do;
+	        plan_file_informal_c = substr(StaffPlanName,index(StaffPlanName,',')+2,1);
+		    plan_file_case_review_c = 0;
+	     end;
+    else if	index(upcase(StaffPlanName),'CASE') then do;
+	        plan_file_informal_c = 0;
+		    plan_file_case_review_c = substr(StaffPlanName,index(StaffPlanName,',')+2,1);
+	     end;  
+    else do;
+		    plan_file_informal_c = 0;
+		    plan_file_case_review_c = 0;
+         end;
+
+    plan_file_formal = plan_file_formal_c * 1;
+    plan_file_informal = plan_file_informal_c * 1;
+    plan_file_case_review = plan_file_case_review_c * 1;
+
+run;	
+
+proc sort data=TNL_EXPECTED_PLAN_DATA_B; by emp_id_num;
+
+/* Clean up duplicates */
+
+proc sql;
+create table plan_dup as
+(select emp_id_num, count(*)
+from TNL_EXPECTED_PLAN_DATA_B
+group by emp_id_num
+having count(*) > 1);
+
+
+Proc sort data=plan_dup; by emp_id_num;
+proc sort data=TNL_EXPECTED_PLAN_DATA_B ; by emp_id_num;
+
+data plan_dup_records;
+  merge plan_dup (in=in_dup) TNL_EXPECTED_PLAN_DATA_B ; by emp_id_num;
+
+  if in_dup;
+run;
+
+proc sort data=TNL_EXPECTED_PLAN_DATA_B out=TNL_EXPECTED_PLAN_DATA_C nodup; by emp_id_num;
+
+data TNL_EXPECTED_PLAN_DATA_D (keep= emp_id_char emp_id_num staff_status
+                                    staff_last_name staff_first_name
+                                    plan_file_plan_type 
+                                    plan_file_formal plan_file_informal plan_file_case_review
+                                    in_plan_ind);
+
+    merge TNL_EXPECTED_PLAN_DATA_C (in=in_plan) Staff_Info_b; by emp_id_num;
+
+    &data_check;
+
+	if in_plan then in_plan_ind = 1; else in_plan_ind = 0;
+run;
+
+proc sql;
+create table plan_dup_exp as
+(select emp_id_num, count(*)
+from TNL_EXPECTED_PLAN_DATA_D
+group by emp_id_num
+having count(*) > 1);
+
+data TNL_OBS_DATA_A;
+  set obsdata.ObsRatingsExtract_&obs_extract_date;
+
+  if plan_type = '' then delete;
+
+  /* Missing employee ID for employee.  Removing and asking LaSHaun to look into */
+  /*if Employee_ID = '0000244844' then delete;*/
+
+  **if Employee_ID in ('000227908');
+run;
+
+proc freq data=TNL_OBS_DATA_A;
+  table Plan_Type;
+run;
+
+proc sql;
+create table blank_plan_type as
+select distinct employee_id, last_name, first_name
+from TNL_OBS_DATA_A
+where plan_type = '';
+run;
+
+/** First we get the expected observations for people whom already had observations **/
+
+data TNL_EXPECTED_OBS_DATA_B (keep=emp_id_num obs_file_plan_type obs_last_name obs_first_name
+                          obs_file_formal obs_file_informal obs_file_case_review);
+attrib emp_id_num obs_file_plan_type obs_last_name obs_first_name 
+       obs_file_formal obs_file_informal obs_file_case_review label='';
+
+  set TNL_OBS_DATA_A;
+
+length emp_id_num 8. 
+       obs_file_plan_type $60. obs_first_name obs_last_name $30.
+       obs_file_formal_c obs_file_informal_c obs_file_case_review_c $1.
+       obs_file_formal obs_file_informal obs_file_case_review 3.;
+
+obs_last_name = last_name;
+obs_first_name = first_name;
+
+emp_id_num = Employee_ID * 1;
+
+    &data_check;
+if index(upcase(plan_type),'PRINCIPAL')
+or index(upcase(plan_type),'NETWORK')
+or index(upcase(plan_type),'NULL')
+or index(upcase(plan_type),'CENTRAL') then delete;
+
+
+obs_file_plan_type = substr(plan_type,1,index(plan_type,'(') - 1);
+
+obs_file_formal_c = substr(plan_type,index(plan_type,'(')+1,1);
+
+     if index(upcase(plan_type),'INFORMAL') then do;
+         obs_file_informal_c = substr(plan_type,index(plan_type,',')+2,1);
+         obs_file_case_review_c = '0';
+     end;
+else if	index(upcase(plan_type),'CASE') then do;
+	     obs_file_informal_c = '0';
+	     obs_file_case_review_c = substr(plan_type,index(plan_type,',')+2,1);
+	 end;  
+else do;
+         obs_file_informal_c = '0';
+	     obs_file_case_review_c = '0';
+     end;
+
+obs_file_formal = obs_file_formal_c * 1;
+obs_file_informal = obs_file_informal_c * 1;
+obs_file_case_review = obs_file_case_review_c * 1;
+
+run;
+
+
+
+proc sort data=TNL_EXPECTED_OBS_DATA_B nodupkey; by emp_id_num;
+
+data TNL_EXPECTED_DATA_A (keep= emp_id_char emp_id_num last_name first_name staff_status
+                                plan_type 
+                                formal_expected informal_expected case_expected
+                                none_started_ind);
+   attrib emp_id_char emp_id_num last_name first_name staff_status
+          plan_type 
+          formal_expected informal_expected case_expected
+          none_started_ind label='';
+   merge TNL_EXPECTED_PLAN_DATA_D (in=in_plan) TNL_EXPECTED_OBS_DATA_B (in=in_obs); by emp_id_num;
+
+     if in_obs and in_plan then do;
+	      first_name = obs_first_name;
+	      last_name = obs_last_name;
+	      plan_type = obs_file_plan_type;
+	      formal_expected = obs_file_formal;
+          informal_expected = obs_file_informal;
+          case_expected = obs_file_case_review;
+		  none_started_ind = 0;
+	 end;
+else if in_obs and not in_plan then do;
+	      first_name = obs_first_name;
+	      last_name = obs_last_name;
+	      plan_type = obs_file_plan_type;
+	      formal_expected = obs_file_formal;
+          informal_expected = obs_file_informal;
+          case_expected = obs_file_case_review;
+		  none_started_ind = 0;
+	 end;
+else if not in_obs and in_plan and in_plan_ind = 1 then do;
+          last_name = staff_last_name;
+          first_name = staff_first_name;
+	      plan_type = plan_file_plan_type;
+	      formal_expected = plan_file_formal;
+          informal_expected = plan_file_informal;
+          case_expected = plan_file_case_review;
+		  none_started_ind = 1;
+	   end;
+else delete;
+
+run;
+
+/** Now lets get actual observations **/
+
+**formal_not_started informal_not_started case_not_started;
+proc sort data=TNL_OBS_DATA_A nodupkey; by employee_id observation_id;
+
+data TNL_ACTUAL_OBS_DATA_A (keep=obs_id emp_id_num 
+                          completed shared                          
+                          formal_start_not_comp formal_completed formal_completed_not_shared
+                          informal_start_not_comp informal_completed informal_completed_not_shared
+                          case_start_not_comp case_completed case_completed_not_shared);
+attrib obs_id emp_id_num 
+       completed shared
+       formal_start_not_comp formal_completed formal_completed_not_shared
+       informal_start_not_comp informal_completed informal_completed_not_shared
+       case_start_not_comp case_completed case_completed_not_shared label='';
+  set  TNL_OBS_DATA_A;
+
+obs_id = Observation_Id;
+emp_id_num = Employee_ID * 1;
+
+&data_check;
+
+formal_start_not_comp = 0;
+formal_completed = 0;
+formal_completed_not_shared=0;
+informal_start_not_comp = 0;
+informal_completed = 0;
+informal_completed_not_shared=0;
+case_start_not_comp = 0;
+case_completed = 0;
+case_completed_not_shared=0;
+
+     if index(upcase(observation_type),'PROFESSIONAL') then delete;
+else if index(upcase(observation_type),'INFORMAL') and index(upcase(plan_type),'INFORMALS') then do;
+            if Completed = 0 then informal_start_not_comp = 1;
+       else if completed = 1 and index(upcase(shared),'RATING') then informal_completed = 1;
+       else if completed = 1 and index(upcase(shared),'RATING')=0 then informal_completed_not_shared=1; 
+     end;
+else if index(upcase(observation_type),'INFORMAL') and index(upcase(plan_type),'CASE')  then do;
+            if Completed = 0 then case_start_not_comp = 1;
+       else if completed = 1 and index(upcase(shared),'RATING') then case_completed = 1;
+       else if completed = 1 and index(upcase(shared),'RATING')=0 then case_completed_not_shared=1; 
+     end;
+else if index(upcase(observation_type),'FORMAL') then do;
+            if Completed = 0 then formal_start_not_comp = 1;
+       else if completed = 1 and index(upcase(shared),'RATING') then formal_completed = 1;
+       else if completed = 1 and index(upcase(shared),'RATING')=0 then formal_completed_not_shared=1; 
+     end;
+run;
+
+proc sql;
+create table TNL_ACTUAL_OBS_DATA_B as
+(select emp_id_num, 
+        sum(formal_start_not_comp)as formal_start_not_comp, sum(formal_completed) as formal_completed, sum(formal_completed_not_shared) as formal_completed_not_shared,
+        sum(informal_start_not_comp) as informal_start_not_comp, sum(informal_completed) as informal_completed, sum(informal_completed_not_shared) as informal_completed_not_shared,
+        sum(case_start_not_comp) as case_start_not_comp, sum(case_completed) as case_completed, sum(case_completed_not_shared) as case_completed_not_shared
+  from TNL_ACTUAL_OBS_DATA_A 
+ group by emp_id_num);
+run;
+
+/*
+proc print data=TNL_ACTUAL_OBS_DATA_B;
+where emp_id_num=000027193;
+*/
+
+proc sql;
+create table obs_dup_act as
+(select emp_id_num, count(*)
+from TNL_ACTUAL_OBS_DATA_B
+group by emp_id_num
+having count(*) > 1);
+
+proc sort data=TNL_ACTUAL_OBS_DATA_B; by emp_id_num;
+
+/* Now we put expected observations and actual observations together 
+   We should have one record by person */
+
+data TNL_DATA_A1 (keep= emp_id_num emp_id_char last_name first_name staff_status 
+                       plan_type 
+                       total_expected    total_not_started    total_start_not_comp    total_completed_not_shared    total_completed  
+  				       formal_expected   formal_not_started   formal_start_not_comp   formal_completed_not_shared   formal_completed 
+                       inf_case_expected inf_case_not_started inf_case_start_not_comp inf_case_completed_not_shared inf_case_completed 
+                       informal_expected informal_not_started informal_start_not_comp informal_completed_not_shared informal_completed 
+                       case_expected     case_not_started     case_start_not_comp     case_completed_not_shared     case_completed                                
+                       );
+					   
+                                
+  attrib emp_id_num emp_id_char last_name first_name staff_status 
+         plan_type 
+         total_expected    total_not_started    total_start_not_comp    total_completed_not_shared    total_completed  
+         formal_expected   formal_not_started   formal_start_not_comp   formal_completed_not_shared   formal_completed  
+         inf_case_expected inf_case_not_started inf_case_start_not_comp inf_case_completed_not_shared inf_case_completed 
+         informal_expected informal_not_started informal_start_not_comp informal_completed_not_shared informal_completed 
+         case_expected     case_not_started     case_start_not_comp     case_completed_not_shared     case_completed       
+    label='';
+   merge TNL_ACTUAL_OBS_DATA_B TNL_EXPECTED_DATA_A; by emp_id_num;
+
+   %macro clean1(obstype);
+     %macro clean2(stage);
+       if &obstype._&stage = . then &obstype._&stage = 0;
+     %mend clean2;
+     %clean2(expected); %clean2(start_not_comp); %clean2(completed_not_shared); %clean2(completed);
+   %mend clean1;
+   %clean1(informal); %clean1(formal); %clean1(case);
+
+   %macro not_started(var);
+     if &var._expected > sum(&var._start_not_comp,&var._completed_not_shared,&var._completed) then
+         &var._not_started = &var._expected - sum(&var._start_not_comp,&var._completed_not_shared,&var._completed);
+	 else &var._not_started = 0; 
+   %mend not_started;
+   %not_started(informal); %not_started(formal); %not_started(case);
+
+   %macro total(var);
+     total_&var = sum(informal_&var, formal_&var, case_&var);
+	 inf_case_&var = informal_&var + case_&var;
+   %mend total;
+   %total(expected); %total(not_started); %total(start_not_comp); %total(completed_not_shared); %total(completed);
+
+run;
+
+data TNL_PAYROLL_DATA_A;
+  set obsdata.staff_payroll_&payroll_date;
+
+  if emplid in (74785,81044);
+run;
+/*
+proc contents data=TNL_PAYROLL_DATA_A varnum;
+proc print data=TNL_PAYROLL_DATA_A;
+where emplid=67045;
+
+
+proc freq data=TNL_PAYROLL_DATA_A;
+  table FULL_TIME_MULTIPLE;
+run;
+*/
+proc sql;
+create table TNL_PAYROLL_DATA_B as 
+(select emplid as emp_id_num, sum(recorded_days) as days_worked
+ from TNL_PAYROLL_DATA_A
+ where 1=1
+   and index(FULL_TIME_MULTIPLE, "TAT") = 0
+ group by emplid)
+;
+
+data TNL_PAYROLL_DATA_C (keep = emp_id_num Possible_days days_worked missed_days do_not_include_missed_days);
+  set TNL_PAYROLL_DATA_B;
+
+       Possible_days = &possible_school_days;
+       missed_days = Possible_days - days_worked;
+
+       if missed_days >= 40 then do_not_include_missed_days = 1; else do_not_include_missed_days = 0;
+
+run;
+
+/** Bring in the list of Remediation employees.  This was received from LaShaun Adeoye on January 27th, 2016 at 10:36 AM thru email to 
+    hmorris@cps.edu **/
+
+proc import 
+ datafile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\Remediation Plans as of 1_19_16.csv"
+ out=remediation_list_a
+ DBMS=dlm replace;
+ delimiter=',';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+
+data remediation_list_b (keep=emp_id_num rem_last_name rem_first_name);
+  set remediation_list_a;
+
+     emp_id_num = ID * 1;
+
+	 &data_check;
+
+	 rename Last_Name = rem_last_name	
+            First_Name = rem_first_name;
+run;
+
+proc sort data=TNL_PAYROLL_DATA_C; by emp_id_num;
+proc sort data=remediation_list_b; by emp_id_num;
+proc sort data=TNL_DATA_A1; by emp_id_num;
+
+data TNL_DATA_A (keep= emp_id_num emp_id_char last_name first_name staff_status include include_c not_include_reason
+                       plan_type 
+		               formal_adjusted_ind inf_case_adjusted_ind
+		               formal_adjusted_ind_c inf_case_adjusted_ind_c
+  	                   formal_expected_u formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+  	                   formal_expected   formal_not_started     formal_start_not_comp     formal_completed_not_shared     formal_completed 
+
+                       inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u 
+                       inf_case_expected   inf_case_not_started   inf_case_start_not_comp   inf_case_completed_not_shared   inf_case_completed 
+
+                       total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u
+                       total_expected      total_not_started      total_start_not_comp      total_completed_not_shared      total_completed  
+/*
+
+                       informal_expected informal_not_started informal_start_not_comp informal_completed_not_shared informal_completed 
+                       case_expected     case_not_started     case_start_not_comp     case_completed_not_shared     case_completed       
+*/
+                       )
+         remed_no_plan (keep=emp_id_num rem_last_name rem_first_name)
+;
+                                
+  attrib emp_id_num emp_id_char last_name first_name staff_status include include_c not_include_reason
+         plan_type 
+		 formal_adjusted_ind inf_case_adjusted_ind
+		 formal_adjusted_ind_c inf_case_adjusted_ind_c
+  	     formal_expected_u formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+  	     formal_expected   formal_not_started     formal_start_not_comp     formal_completed_not_shared     formal_completed 
+
+         inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u 
+         inf_case_expected   inf_case_not_started   inf_case_start_not_comp   inf_case_completed_not_shared   inf_case_completed 
+
+         total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u
+         total_expected      total_not_started      total_start_not_comp      total_completed_not_shared      total_completed  
+		 label='';
+/*
+         total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u  
+  		 formal_expected_u   formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+         inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u
+
+         informal_expected informal_not_started informal_start_not_comp informal_completed_not_shared informal_completed 
+         case_expected     case_not_started     case_start_not_comp     case_completed_not_shared     case_completed       
+*/
+
+   merge TNL_DATA_A1 (in=in_tnl_data) TNL_PAYROLL_DATA_C remediation_list_b (in=in_remed); by emp_id_num;
+
+
+     if in_remed and not in_tnl_data then output  remed_no_plan;
+else if in_tnl_data then do;
+
+      /* 1/20/2016 Per Ryan, remove records of people in these Staff Statuses */
+      if index(upcase(staff_status),'--') or index(upcase(staff_status),'@ERR') or index(upcase(staff_status),'DECEASED')
+	  or index(upcase(staff_status),'INACTIVE') or index(upcase(staff_status),'RETIRED') or index(upcase(staff_status),'TERM W/PAY') 
+      or index(upcase(staff_status),'TERMINATED') or in_remed then delete;	
+
+        length include 3. include_c $3. not_include_reason $40.;
+
+      if index(upcase(staff_status),'W/PA') > 0 then staff_status = 'Leave W/Pay';
+
+	  /*
+      if in_remed then do;
+        include=0;
+		include_c='No';
+	    not_include_reason = 'In Rememdiation Plan';
+	  end;
+      else 
+      */
+      if plan_type = 'TAT' then do; 
+	    include=0;
+		include_c='No';
+	    not_include_reason = 'TAT Employee';
+	  end;
+ else if index(upcase(staff_status),'FUTURE STATE') or index(upcase(staff_status),'LEAVE')
+	  or index(upcase(staff_status),'LEAVE W/PAY') or index(upcase(staff_status),'NOT APPLICABLE') or index(upcase(staff_status),'NOT REPORTED')
+	  or index(upcase(staff_status),'UNKNOWN')
+	  then do;
+        include=0;
+		include_c='No';
+	    not_include_reason = 'Invalid Staff Status (' || trim(staff_status) || ')';
+	  end;
+ else if staff_status = ''
+ 	  then do;
+        include=0;
+		include_c='No';
+	    not_include_reason = 'Missing Staff Status';
+	  end;
+ else if do_not_include_missed_days = 1
+ 	  then do;
+        include=0;
+		include_c='No';
+	    not_include_reason = 'Insufficient Days Worked';
+	  end;
+ else do;
+        include = 1;
+		include_c='Yes';
+	    not_include_reason = '';
+      end;
+
+
+        /* First set upunadjusted holders */
+    	%macro unadj(var1);
+          &var1._u = &var1;
+        %mend;
+        %unadj(total_expected); %unadj(total_not_started); %unadj(total_start_not_comp); %unadj(total_completed_not_shared); %unadj(total_completed);
+        %unadj(formal_expected); %unadj(formal_not_started); %unadj(formal_start_not_comp); %unadj(formal_completed_not_shared); %unadj(formal_completed);
+        %unadj(inf_case_expected); %unadj(inf_case_not_started); %unadj(inf_case_start_not_comp); %unadj(inf_case_completed_not_shared); %unadj(inf_case_completed); 
+
+		/* Thanks to Asher Karp do the adjustemnts in temporary vatiables */
+         f_exp = formal_expected;			
+         f_ns  = formal_not_started;
+         f1    = formal_start_not_comp;
+         f2    = formal_completed_not_shared;
+         f3    = formal_completed;
+
+         g_exp = inf_case_expected;
+         g_ns  = inf_case_not_started;
+         g1    = inf_case_start_not_comp;
+         g2    = inf_case_completed_not_shared;
+         g3    = inf_case_completed;
+
+         f3_excess = f3-f_exp;
+         if f3_excess > 0 then do;
+         	f3=f3 - f3_excess;
+         	g3=g3 + f3_excess;
+         end;
+
+         f2f3_excess = sum(f2,f3)-f_exp;
+         if f2f3_excess > 0 then do;
+	        f2 = f2 - f2f3_excess;
+         	g2 = g2 + f2f3_excess;
+         end;
+         f1f2f3_excess = sum(f1,f2,f3)-f_exp;
+         if f1f2f3_excess > 0 then do;
+	        f1 = f1 - f1f2f3_excess;
+         	g1 = g1 + f1f2f3_excess;
+         end;
+
+         g3_excess= g3 - g_exp;
+         if g3_excess > 0 then g3 = g3 - g3_excess;
+         g2g3_excess= sum(g2,g3) - g_exp;
+
+         if g2g3_excess > 0 then g2 = g2 - g2g3_excess;
+         g1g2g3_excess = sum(g1,g2,g3) - g_exp;
+
+         if g1g2g3_excess > 0 then g1 = g1 - g_exp;
+         g_ns = g_exp - sum(g1,g2,g3);
+
+		 /* Place adjusted variables in standard holders */
+         formal_expected = f_exp;		
+         formal_not_started =f_ns;
+         formal_start_not_comp = f1;
+         formal_completed_not_shared = f2;
+         formal_completed = f3;
+
+         inf_case_expected = g_exp;
+         inf_case_not_started = g_ns;
+         inf_case_start_not_comp = g1;
+         inf_case_completed_not_shared = g2;
+         inf_case_completed = g3;
+
+         total_expected = sum(f_exp,g_exp);
+         total_not_started = sum(f_ns,g_ns);
+         total_start_not_comp = sum(f1,g1);
+         total_completed_not_shared = sum(f2,g2);
+         total_completed = sum(f3,g3);
+
+		 /* Set indicators if changes are made */ 
+		 length formal_adjusted_ind_c inf_case_adjusted_ind_c $3.;
+         if (formal_not_started NE formal_not_started_u) or (formal_start_not_comp NE formal_start_not_comp_u)
+		 or (formal_completed_not_shared NE formal_completed_not_shared_u) or (formal_completed NE formal_completed_u)
+		 then do;
+           formal_adjusted_ind = 1; 
+           formal_adjusted_ind_c = 'Yes';
+         end; 
+         else do;
+           formal_adjusted_ind = 0;
+           formal_adjusted_ind_c = 'No';
+         end; 
+
+		 if (inf_case_not_started NE inf_case_not_started_u) or (inf_case_start_not_comp NE inf_case_start_not_comp_u)
+		 or (inf_case_completed_not_shared NE inf_case_completed_not_shared_u) or (inf_case_completed NE inf_case_completed_u)
+		 then do;
+           inf_case_adjusted_ind = 1; 
+           inf_case_adjusted_ind_c = 'Yes';
+         end; 
+         else do;
+           inf_case_adjusted_ind = 0;
+           inf_case_adjusted_ind_c = 'No';
+         end; 
+output TNL_DATA_A;
+end;
+
+run;
+
+proc sql;
+create table complete_more_than_expected as
+(select * 
+from TNL_DATA_A
+where (formal_adjusted_ind = 1) or (inf_case_adjusted_ind =1)
+);
+
+proc export data=complete_more_than_expected
+   outfile="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\complete_more_than_expected_&todayfm..csv"
+   dbms=dlm
+   replace;
+   delimiter=',';
+run;
+
+title 'After Adjustment';
+proc freq data=TNL_DATA_A;
+  table formal_adjusted_ind_c*inf_case_adjusted_ind_c;
+run;
+
+title 'Not included in summary breakdown';
+proc freq data=TNL_DATA_A;
+  table include_c*not_include_reason / missing out=TNL_NOT_INCLUDE_DATA_A;
+run;
+title;
+proc sql;
+create table tnl_dup_act as
+(select emp_id_num, count(*)
+from TNL_DATA_A
+group by emp_id_num
+having count(*) > 1);
+
+/** Now we are going to add the location and network to every record.  After trhis we may have multipel records for some people 
+    if they worked at multiple schools **/
+
+/* This is a file we share with TNL that contains the employee school */
+
+proc import 
+ datafile='\\admin\appdata\datawarehouse\REACH_Interface_TNL\Latest_Files\TNL_Employee_Data.dat'
+ out=obsdata.TNL_Employee_Data
+ DBMS=dlm replace;
+ delimiter='|';
+ getnames=yes;
+ guessingrows=2147483647;
+run;
+
+data TNL_LOC_DATA_A;
+  set obsdata.TNL_Employee_Data;
+
+  /* if Unique_Person_Key='C000022251' then delete; */
+
+   /** REMOVE REPEATING COMMAS FROM LOCATION CODE **/
+   l1=length(location_code);
+
+   /* the loop below captures each character in turn and compares
+   the remaining characters by position.  If a match is found,
+   the matching value is replaced with a null character, '00'x.
+   If the first value is a null character, the comparison loop
+   is not executed. */
+     do i = 1 to l1-1;
+       t1=',,';
+       if t1 ^= '00'x then do j = i+1 to l1;
+       if t1=substr(location_code,j,2) then substr(location_code,j,1)='00'x;
+       end;
+     end;
+/* the COMPRESS function is used to remove the nulls*/
+     location_code=compress(location_code,'00'x);
+run;
+
+/** We get the list of schools in a string so we need to break each school out individually */
+
+data TNL_LOC_DATA_B (keep=emp_id_num location_code school_code);
+/*data TNL_LOC_DATA_B;*/
+  set TNL_LOC_DATA_A;
+
+    length Location_Code $145. school_code $10.;
+    if compress(location_code) = '11670,11671,11672,11673,11674,11675' then do;
+        location_code = 'DL MNGR';
+        school_code =  'DL MNGR';
+    end;
+ 
+    emp_id_num = unique_person_key * 1;
+
+    &data_check;
+
+    /* Count number of times the delimiter occurs */
+    count= count(location_code,',');
+    ** put count=;
+
+    /* Output each name to a separate observation */
+    do i=1 to (count+1);
+       school_code = scan(location_code,i,',');
+       output;
+    end;
+run;
+
+proc sort data=TNL_LOC_DATA_B; by school_code;
+proc sort data=School_Info_b; by school_code;
+
+/** We add the network and school name to every loctaion record */
+data TNL_LOC_DATA_C1 (keep = emp_id_num location_code school_code network school_short_name);
+  merge TNL_LOC_DATA_B (in=in_loc) School_Info_c; by school_code;
+
+  if in_loc;
+  
+run; 
+
+/** and loctaion record to every data record */
+proc sort data=TNL_LOC_DATA_C1; by emp_id_num location_code;
+
+data concat (keep = emp_id_num location_code total_notes);
+  length total_notes $ 200 /* need to be the max */;
+  set TNL_LOC_DATA_C1;
+  by emp_id_num location_code;
+
+  retain total_notes;
+
+  if first.emp_id_num then total_notes = school_short_name;
+  else total_notes=trim(total_notes) || ' ; ' || trim(school_short_name);
+
+  if last.emp_id_num then output;
+run;
+
+proc sort data=concat; by emp_id_num location_code;
+
+data TNL_LOC_DATA_C (keep = emp_id_num school_code network school_short_name location_code total_notes);
+  attrib emp_id_num school_code network school_short_name location_code total_notes label='';
+  merge TNL_LOC_DATA_C1 concat; by emp_id_num location_code;
+
+run;
+
+proc sort data=TNL_LOC_DATA_C; by emp_id_num;
+proc sort data=TNL_DATA_A; by emp_id_num;
+
+data TNL_DATA_B (keep= emp_id_num emp_id_char last_name first_name staff_status include include_c not_include_reason
+                       plan_type 
+		               formal_adjusted_ind inf_case_adjusted_ind
+		               formal_adjusted_ind_c inf_case_adjusted_ind_c
+  	                   formal_expected_u formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+  	                   formal_expected   formal_not_started     formal_start_not_comp     formal_completed_not_shared     formal_completed 
+
+                       inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u 
+                       inf_case_expected   inf_case_not_started   inf_case_start_not_comp   inf_case_completed_not_shared   inf_case_completed 
+
+                       total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u
+                       total_expected      total_not_started      total_start_not_comp      total_completed_not_shared      total_completed  
+
+					   district_code district_name school_code network_sort network network_name school_short_name location_code total_notes
+                       );
+					   
+attrib emp_id_num emp_id_char last_name first_name staff_status include include_c not_include_reason
+       plan_type 
+	   formal_adjusted_ind inf_case_adjusted_ind
+	   formal_adjusted_ind_c inf_case_adjusted_ind_c
+  	   formal_expected_u formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+  	   formal_expected   formal_not_started     formal_start_not_comp     formal_completed_not_shared     formal_completed 
+
+       inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u 
+       inf_case_expected   inf_case_not_started   inf_case_start_not_comp   inf_case_completed_not_shared   inf_case_completed 
+
+       total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u
+       total_expected      total_not_started      total_start_not_comp      total_completed_not_shared      total_completed  
+
+	   district_code district_name school_code network_sort network network_name school_short_name location_code total_notes label='';
+
+   merge TNL_DATA_A (in=in_TNL) TNL_LOC_DATA_C; by emp_id_num;
+
+   if in_tnl;
+   if school_code = '' or school_code =  'DL MNGR' then delete;
+
+   
+   length network_sort district_code 3. district_name $45. network_name $10.;
+   if compress(network) in ('','--') then network = 'NONE';
+   
+        if compress(network) = 'Network1' then network_sort = 1;
+   else if compress(network) = 'Network2' then network_sort = 2;
+   else if compress(network) = 'Network3' then network_sort = 3;
+   else if compress(network) = 'Network4' then network_sort = 4;
+   else if compress(network) = 'Network5' then network_sort = 5;
+   else if compress(network) = 'Network6' then network_sort = 6;
+   else if compress(network) = 'Network7' then network_sort = 7;
+   else if compress(network) = 'Network8' then network_sort = 8;
+   else if compress(network) = 'Network9' then network_sort = 9;
+   else if compress(network) = 'Network10' then network_sort = 10;
+   else if compress(network) = 'Network11' then network_sort = 11;
+   else if compress(network) = 'Network12' then network_sort = 12;
+   else if compress(network) = 'Network13' then network_sort = 13;
+   else if compress(network) = 'AUSL' then network_sort = 14;
+   else if compress(network) = 'ISP' then network_sort = 15;
+   else if compress(network) = 'ServiceLeadershipAcademies' then network_sort = 16;
+   else if compress(network) = 'NONE' then network_sort = 17;
+   else network_sort = 18;
+     
+   district_code = 299;
+   district_name = 'Chicago Public Schools';
+   network_name = '';
+
+run;
+
+proc freq data=tnl_data_b;
+  table plan_type;
+run;
+
+proc sql;
+create table  tnl_b_dup as
+(select school_code, emp_id_num, count(*)
+from tnl_data_b
+group by school_code, emp_id_num
+having count(*) > 1);
+
+
+/** We are going to need this little data set later to make sure evry school / network as hall possibilities of obs counts for our
+summary page of the report **/
+data summary_of_eds_expand_b;
+   infile datalines delimiter=',';
+   input dummy rowhead $24. rowhead_sort;
+   datalines;
+1,Educators needing 2 obs.,1
+1,RSPs needing 3 obs.     ,2
+1,Educators needing 4 obs.,3
+;
+
+/** Now lets prepare the data for our district, network and school reports **/
+/** and now special ODLSS reports 2/16 */
+%macro grouping(group,group_code1, group_code2, group_name, where);
+data TNL_DATA_&group._a1;
+  set TNL_DATA_B;
+   
+      &where;
+
+	  %if ("&group"="OBP") or ("&group"="OBPntwk") or ("&group"="OBPsch")
+%then %do;
+if emp_id_num in 
+(244309,233668,232199,231638,224499,223682,223669,219244,214848,213906,209220,208811,206839,205234,204665,204526,203468,200044,150802,149177,148421,146387,144343,
+142432,141779,140769,140162,139945,138719,137334,132019,130800,129787,125469,124854,124840,117807,115452,115425,105846,104361,104280,103299,103175,101364,100720,
+99503,99221,98793,98756,98722,96433,94590,94573,94386,93910,93714,92207,90504,90412,87848,87600,85160,85038,81333,81263,80244,78759,78296,78258,78242,77995,76390,
+76037,75673,74310,74288,74198,73957,71821,71815,69402,67045,66917,66715,65982,65115,58278,58107,57039,54995,54459,54248,54233,52211,50177,47514,47090,46035,45682,
+45613,45480,43672,41552,41489,41404,40323,37218,33406,33284,33094,33068,32872,32842,30709,28760,26498,26178,25478,24863,24522,22822,22780,21352,21094,20737,19800,
+13937,13159,9761,7065,5944,2476,2186) 
+then delete;
+      %end; 
+run;
+
+
+/** Only keep onbe record for each employee.  We need to do this as some employees work for multiple schools / networkd **/
+proc sort data=TNL_DATA_&group._a1 out=TNL_DATA_&group._a nodupkey; by &group_code1 emp_id_num;
+
+/** Prepare our summary by gettinfg counts by completed obs by obs needed by eductaor **/
+data summary_of_eds_&group._a (keep = &group_code1 rowhead rowhead_sort emp_id_num has0 has1 has2 has3 has4);
+   set TNL_DATA_&group._a;
+
+   if include=1;
+
+   %macro need(var);
+      length rowhead_sort 3. rowhead $24.;
+	  	  if total_expected = &var then do;
+             rowhead = "Educators needing &var obs.";	
+			 rowhead_sort = &var. - 1;
+		  end;
+   %mend need;
+   %need(2); %need(4);
+
+   if total_expected = 3 then do;
+        rowhead = "RSPs needing 3 obs.     ";	
+	    rowhead_sort = 2;
+   end;
+
+   %macro eds(var);
+      length has&var 3.;
+      if (total_completed = &var) then has&var = 1; else has&var = 0; 
+   %mend eds;
+   %eds(0); %eds(1); %eds(2); %eds(3); %eds(4);
+
+run;
+
+proc sql;
+create table summary_of_eds_&group._b as 
+(select &group_code2, rowhead_sort, rowhead, 1 as dummy, count(emp_id_num) as total_emp_x, 
+        sum(has0) as has0_x, sum(has1) as has1_x, sum(has2) as has2_x, sum(has3) as has3_x, sum(has4) as has4_x
+   from summary_of_eds_&group._a 
+  group by &group_code2, rowhead_sort, rowhead);
+run;
+
+data summary_of_eds_expand_&group._a (keep=&group_code1 dummy);
+  set TNL_DATA_&group._a;
+  dummy=1;
+  **where school_code ='05281';
+run;
+
+proc sort data=summary_of_eds_expand_&group._a nodupkey ; by &group_code1;
+
+proc sql;
+create table summary_of_eds_expand_&group._c as
+select &group_code2, rowhead, rowhead_sort, 0 as total_emp_e, 0 as has0_e, 0 as has1_e, 0 as has2_e, 0 as has3_e, 0 as has4_e
+from summary_of_eds_expand_&group._a as a
+inner join summary_of_eds_expand_b as b
+on b.dummy = a.dummy
+order by &group_code2, rowhead, rowhead_sort;
+
+proc sort data=summary_of_eds_&group._b; by &group_code1 rowhead_sort rowhead;
+proc sort data=summary_of_eds_expand_&group._c; by &group_code1 rowhead_sort rowhead;
+
+data summary_of_eds_&group._c (keep=&group_code1 rowhead rowhead_sort
+                            total_emp has0 has1 has2 has3 has4);
+   merge summary_of_eds_expand_&group._c (in=in_expand)summary_of_eds_&group._b (in=in_eds);
+      by &group_code1 rowhead_sort rowhead; 
+
+  if in_expand and in_eds then do;
+         total_emp = total_emp_x;
+	     has0 = has0_x;
+	     has1 = has1_x;
+	     has2 = has2_x;
+	     has3 = has3_x;
+	     has4 = has4_x;
+     end;
+else if in_expand and not in_eds then do;
+         total_emp = total_emp_e;
+	     has0 = has0_e;
+	     has1 = has1_e;
+	     has2 = has2_e;
+	     has3 = has3_e;
+	     has4 = has4_e;
+     end;
+run;
+
+proc sort data=summary_of_eds_&group._c; by &group_code1 rowhead_sort;
+
+proc sql;
+create table expand_check_&group as
+select &group_code2, count(*)
+from summary_of_eds_&group._c
+group by &group_code2
+having count(*) NE 3;
+run;
+
+data summary_of_eds_&group._exp2 (keep= &group_code1 exp2_total_emp exp2_has0 exp2_has1 exp2_has2 exp2_has3 exp2_has4)
+     summary_of_eds_&group._exp3 (keep= &group_code1 exp3_total_emp exp3_has0 exp3_has1 exp3_has2 exp3_has3 exp3_has4)
+     summary_of_eds_&group._exp4 (keep= &group_code1 exp4_total_emp exp4_has0 exp4_has1 exp4_has2 exp4_has3 exp4_has4);
+   set summary_of_eds_&group._c;
+
+   %macro sorting_hat(var);
+     if index(rowhead,"&var") then do;
+     length exp&var._total_emp exp&var._has0 exp&var._has1 exp&var._has2 exp&var._has3 exp&var._has4 5.;
+     exp&var._total_emp = total_emp;
+     exp&var._has0 = has0;
+     exp&var._has1 = has1; 
+     exp&var._has2 = has2; 
+     exp&var._has3 = has3; 
+     exp&var._has4 = has4;
+
+     output summary_of_eds_&group._exp&var;
+	 end;
+
+   %mend sorting_hat;
+   %sorting_hat(2); %sorting_hat(3); %sorting_hat(4);
+run;
+
+data summary_of_eds_&group._onerow (keep= &group_code1 exp2_total_emp exp2_has0 exp2_has1 exp2_has2 exp2_has3 exp2_has4
+                                                      exp3_total_emp exp3_has0 exp3_has1 exp3_has2 exp3_has3 exp3_has4
+                                                      exp4_total_emp exp4_has0 exp4_has1 exp4_has2 exp4_has3 exp4_has4);
+   merge summary_of_eds_&group._exp2 summary_of_eds_&group._exp3 summary_of_eds_&group._exp4; by &group_code1; 													   
+run;     
+
+
+proc sql;
+create table summary_of_obs_&group._a as
+select &group_code2, 1 as rowhead_sort, 'Number' as rowhead_x, 
+                    sum(total_expected)as total_expected_x, sum(total_not_started)as total_not_started_x, 
+                    sum(total_start_not_comp)as total_start_not_comp_x, 
+                    sum(total_completed) as total_completed_x, 
+                    sum(total_completed_not_shared) as total_completed_not_shared_x
+  from TNL_DATA_&group._a
+  where include = 1
+  group by &group_code2
+  order by &group_code2;
+run;
+
+data summary_of_obs_&group._b (keep = &group_code1 rowhead_sort rowhead
+                           total_expected total_not_started total_start_not_comp total_completed total_completed_not_shared
+					       rls_days_percent);
+  set summary_of_obs_&group._a;
+      length rowhead $8. 
+	         total_expected total_not_started total_start_not_comp total_completed total_completed_not_shared rls_days_percent 8.
+			 rowhead_sort 6.;
+	  format total_expected total_not_started total_start_not_comp total_completed total_completed_not_shared 8.5;
+
+	  rowhead = rowhead_x;
+      total_expected = total_expected_x;
+      total_not_started = total_not_started_x;
+      total_start_not_comp = total_start_not_comp_x;
+      total_completed = total_completed_x;
+      total_completed_not_shared = total_completed_not_shared_x;
+	  rls_days_percent = .;
+      output;
+	  
+      rowhead_sort = 2;
+	  rowhead='Percent';
+	  rls_days_percent = &rls_days_percent / 100;
+	  total_expected = .;
+	  total_not_started = total_not_started / total_expected_x;
+	  total_start_not_comp = total_start_not_comp / total_expected_x;
+	  total_completed = total_completed / total_expected_x;
+	  total_completed_not_shared = total_completed_not_shared/ total_expected_x;
+      output;
+
+run;					       
+
+/* Summarize the obs into a one row per grouping */
+data summary_of_obs_&group._onerow 
+  (keep= &group_code1 total_expected_n total_not_started_n total_start_not_comp_n total_completed_n total_completed_not_shared_n
+                     rls_days_percent total_not_started_p total_start_not_comp_p total_completed_p total_completed_not_shared_p
+					 );
+  set summary_of_obs_&group._a;
+      length total_expected_n total_not_started_n total_start_not_comp_n total_completed_n total_completed_not_shared_n
+	         rls_days_percent total_not_started_p total_start_not_comp_p total_completed_p total_completed_not_shared_p
+             8.;
+      format total_expected_n total_not_started_n total_start_not_comp_n total_completed_n total_completed_not_shared_n
+	         rls_days_percent total_not_started_p total_start_not_comp_p total_completed_p total_completed_not_shared_p
+             8.5;
+
+      total_expected_n = total_expected_x;
+      total_not_started_n = total_not_started_x;
+      total_start_not_comp_n = total_start_not_comp_x;
+      total_completed_n = total_completed_x;
+      total_completed_not_shared_n = total_completed_not_shared_x;
+	  rls_days_percent = &rls_days_percent / 100;
+
+	  total_not_started_p = total_not_started_n / total_expected_x;
+	  total_start_not_comp_p = total_start_not_comp_n / total_expected_x;
+	  total_completed_p = total_completed_n / total_expected_x;
+	  total_completed_not_shared_p = total_completed_not_shared_n / total_expected_x;
+run;					       
+
+proc sort data=summary_of_obs_&group._onerow; by &group_code1;
+
+proc sort data=summary_of_eds_&group._onerow; by &group_code1;
+
+data summary_&group._onerow (keep = 
+                     &group_code1 total_expected_n total_not_started_n total_start_not_comp_n total_completed_n total_completed_not_shared_n
+                     rls_days_percent total_not_started_p total_start_not_comp_p total_completed_p total_completed_not_shared_p
+
+                     exp2_total_emp exp2_has0 exp2_has1 exp2_has2 exp2_has3 exp2_has4
+                     exp3_total_emp exp3_has0 exp3_has1 exp3_has2 exp3_has3 exp3_has4
+                     exp4_total_emp exp4_has0 exp4_has1 exp4_has2 exp4_has3 exp4_has4);
+    merge summary_of_obs_&group._onerow summary_of_eds_&group._onerow; by &group_code1;
+run;
+
+proc sort data= summary_&group._onerow; by &group_code1;
+
+proc sort data = summary_of_obs_&group._b; by &group_code1 rowhead_sort;
+
+proc sort data=TNL_DATA_&group._a; by &group_code1 emp_id_num emp_id_char last_name first_name;
+
+%mend grouping;
+%grouping(CPS, %str(district_code),%str(district_code), district_name,)
+%grouping(ntwk, %str(district_code network_sort network), %str(district_code, network_sort, network), network_name,)
+%grouping(sch, %str(district_code network_sort network school_code school_short_name), %str(district_code, network_sort, network, school_code, school_short_name), school_short_name,);
+
+%grouping(OBP, %str(district_code),%str(district_code), district_name, %str(if index(upcase(plan_type),'BIENN')>0 and index(location_code,'11675')>0));
+%grouping(ONBP, %str(district_code),%str(district_code), district_name, %str(if index(upcase(plan_type),'BIENN')=0 and index(location_code,'11675')>0) and total_expected NE 4 );
+%grouping(OBPntwk, %str(district_code network_sort network), %str(district_code, network_sort, network), network_name, %str(if index(upcase(plan_type),'BIENN')>0 and index(location_code,'11675')>0));
+%grouping(ONBPntwk, %str(district_code network_sort network), %str(district_code, network_sort, network), network_name, %str(if index(upcase(plan_type),'BIENN')=0 and index(location_code,'11675')>0) and total_expected NE 4);
+%grouping(OBPsch, %str(district_code network_sort network school_code school_short_name), %str(district_code, network_sort, network, school_code, school_short_name), school_short_name, %str(if index(upcase(plan_type),'BIENN')>0 and index(location_code,'11675')>0));
+%grouping(ONBPsch, %str(district_code network_sort network school_code school_short_name), %str(district_code, network_sort, network, school_code, school_short_name), school_short_name, %str(if index(upcase(plan_type),'BIENN')=0 and index(location_code,'11675')>0) and total_expected NE 4);
+
+
+proc datasets;
+   delete School_date_a School_date_b School_date_c school_info_a school_info_b org_info_a org_info_b Staff_Info_a
+          TNL_PLAN_DATA_A TNL_EXPECTED_PLAN_DATA_B TNL_EXPECTED_PLAN_DATA_C TNL_EXPECTED_PLAN_DATA_D
+          TNL_OBS_DATA_A TTNL_EXPECTED_OBS_DATA_B  
+          TNL_EXPECTED_DATA_A
+          TNL_ACTUAL_OBS_DATA_A TNL_ACTUAL_OBS_DATA_B 
+          TNL_DATA_A1
+          TNL_PAYROLL_DATA_A TNL_PAYROLL_DATA_B TNL_PAYROLL_DATA_C
+          remediation_list_a remediation_list_b
+          TNL_DATA_A
+          TNL_LOC_DATA_A TNL_LOC_DATA_B TNL_LOC_DATA_C1 concat TNL_LOC_DATA_C
+          summary_of_eds_expand_b
+          summary_of_eds_expand_CPS_a  summary_of_eds_expand_CPS_b  summary_of_eds_expand_CPS_c  summary_of_obs_CPS_onerow summary_of_eds_CPS_onerow summary_CPS_onerow
+          summary_of_eds_expand_ntwk_a summary_of_eds_expand_ntwk_b summary_of_eds_expand_ntwk_c summary_of_obs_ntwk_onerow summary_of_eds_ntwk_onerow
+          summary_of_eds_expand_sch_a  summary_of_eds_expand_sch_b  summary_of_eds_expand_sch_c  summary_of_obs_sch_onerow summary_of_eds_sch_onerow
+
+		  summary_of_eds_expand_OBP_a  summary_of_eds_expand_OBP_b  summary_of_eds_expand_OBP_c  summary_of_obs_OBP_onerow summary_of_eds_OBP_onerow summary_OBP_onerow
+		  TNL_DATA_OBPntwk_a summary_of_eds_expand_OBPntwk_a summary_of_eds_expand_OBPntwk_b summary_of_eds_expand_OBPntwk_c summary_of_obs_OBPntwk_onerow summary_of_eds_OBPntwk_onerow
+          summary_of_obs_OBPntwk_b summary_of_eds_OBPntwk_c
+		  TNL_DATA_OBPsch_a summary_of_eds_expand_OBPsch_a summary_of_eds_expand_OBPsch_b summary_of_eds_expand_OBPsch_c summary_of_obs_OBPsch_onerow summary_of_eds_OBPsch_onerow
+          summary_of_obs_OBPsch_b summary_of_eds_OBPsch_c
+
+		  summary_of_eds_expand_ONBP_a  summary_of_eds_expand_ONBP_b  summary_of_eds_expand_ONBP_c  summary_of_obs_ONBP_onerow summary_of_eds_ONBP_onerow summary_ONBP_onerow
+		  TNL_DATA_ONBPntwk_a summary_of_eds_expand_ONBPntwk_a summary_of_eds_expand_ONBPntwk_b summary_of_eds_expand_ONBPntwk_c summary_of_obs_ONBPntwk_onerow summary_of_eds_ONBPntwk_onerow
+          summary_of_obs_ONBPntwk_b summary_of_eds_ONBPntwk_c
+		  TNL_DATA_ONBPsch_a summary_of_eds_expand_ONBPsch_a summary_of_eds_expand_ONBPsch_b summary_of_eds_expand_ONBPsch_c summary_of_obs_ONBPsch_onerow summary_of_eds_ONBPsch_onerow
+          summary_of_obs_ONBPsch_b summary_of_eds_ONBPsch_c
+
+      ;
+run;
+/*
+TNL_DATA_CPS_a
+summary_of_obs_CPS_b
+summary_of_eds_CPS_c
+summary_of_CPS_onerow
+
+TNL_DATA_ntwk_a
+summary_of_obs_ntwk_b
+summary_of_eds_ntwk_c
+summary_of_ntwk_onerow
+
+TNL_DATA_sch_a
+summary_of_obs_sch_b
+summary_of_eds_sch_c
+summary_of_sch_onerow
+
+TNL_DATA_OBP_a
+summary_of_obs_OBP_b
+summary_of_eds_OBP_c
+summary_of_OBP_onerow
+summary_of_OBPntwk_onerow
+summary_of_OBPsch_onerow
+
+TNL_DATA_ONBP_a
+summary_of_obs_ONBP_b
+summary_of_eds_ONBP_c
+summary_of_ONBP_onerow
+
+TNL_DATA_ONBPntwk_a
+summary_of_obs_ONBPntwk_b
+summary_of_eds_ONBPntwk_c
+summary_of_ONBP_onerow
+
+TNL_DATA_ONBPsch_a
+summary_of_obs_ONBPsch_b
+summary_of_eds_ONBPsch_c
+summary_of_ONBPsch_onerow
+*/
+
+
+/**  Here are the report templates **/
+
+%macro summary_of_obs;
+
+	column rowhead_sort rowhead total_expected total_completed total_completed_not_shared total_start_not_comp total_not_started rls_days_percent;
+
+	define rowhead_sort / noprint order;
+	define rowhead / display '';
+	define total_expected / display 'Total Expected';
+
+    define total_completed /display 'Completed* and Shared*With Ratings';
+    define total_completed_not_shared /display 'Completed*but not*Shared With* Ratings';
+    define total_start_not_comp /display 'Started*but not*Completed';
+    define total_not_started / display 'Not Started';
+    define rls_days_percent / display '% of Year Elapsed';
+
+%mend summary_of_obs;
+
+%macro summary_of_eds;
+	column rowhead_sort rowhead total_emp 
+           ('Number of observations that have been Completed and Shared With Ratings' has0 has1 has2 has3 has4);
+
+	define rowhead_sort / noprint order;
+	define rowhead / display '';
+	define total_emp / display '# Employees';
+    define has0 / display '0';
+    define has1 / display '1';
+    define has2 / display '2';
+    define has3 / display '3';
+    define has4 / display '4';
+%mend summary_of_eds;
+
+
+%macro ntwk_unit_summary_display1;
+           ('Summary of Observations'
+                ('Count' total_expected_n total_completed_n total_completed_not_shared_n total_start_not_comp_n total_not_started_n)
+		        ('Percent'  total_completed_p total_completed_not_shared_p total_start_not_comp_p total_not_started_p)
+		   )
+           ("Summary of Educators with 'Completed and Shared with Ratings' Observations" 
+                ('Educators needing 2 obs.' exp2_total_emp	exp2_has0	exp2_has1	exp2_has2)	
+                ('RSPs needing 3 obs.' exp3_total_emp	exp3_has0	exp3_has1	exp3_has2	exp3_has3)	
+                ('Educators needing 4 obs.' exp4_total_emp	exp4_has0	exp4_has1	exp4_has2	exp4_has3	exp4_has4)
+           );
+%mend ntwk_unit_summary_display1;
+  
+%macro ntwk_unit_summary_display2;
+	   define total_expected_n / display 'Total Expected';
+       %macro netsum1(var);
+           define total_completed_&var /display 'Completed* and Shared*With Ratings';
+           define total_completed_not_shared_&var /display 'Completed*but not*Shared With* Ratings';
+           define total_start_not_comp_&var /display 'Started*but not*Completed';
+           define total_not_started_&var / display 'Not Started';
+       %mend netsum1;
+	   %netsum1(n); %netsum1(p);
+
+	   define exp2_total_emp / display '# Employees';
+       define exp2_has0 / display '0';
+       define exp2_has1 / display '1';
+	   define exp2_has2 / display '2';
+
+	   define exp3_total_emp / display '# Employees';
+       define exp3_has0 / display '0';
+       define exp3_has1 / display '1';
+	   define exp3_has2 / display '2';
+	   define exp3_has3 / display '3';
+
+	   define exp4_total_emp / display '# Employees';
+       define exp4_has0 / display '0';
+       define exp4_has1 / display '1';
+	   define exp4_has2 / display '2';
+	   define exp4_has3 / display '3';
+	   define exp4_has4 / display '4';
+%mend ntwk_unit_summary_display2;
+
+%macro educator_detail;
+	column emp_id_char first_name last_name include_c not_include_reason plan_type 
+	      ('Total Observations'  total_expected_u  total_completed_u total_completed_not_shared_u total_start_not_comp_u  total_not_started_u ) 
+          ('Informal Observations / Case Reviews' inf_case_expected_u  inf_case_completed_u inf_case_completed_not_shared_u inf_case_start_not_comp_u  inf_case_not_started_u)
+  	      ('Formal Observations'   formal_expected_u  formal_completed_u formal_completed_not_shared_u formal_start_not_comp_u  formal_not_started_u)
+		  ('Schools / Orginization Units that this employee is associated with' location_code total_notes)
+		  ;
+  
+	   define emp_id_char / display 'Employee*ID';
+	   define first_name / display 'First Name';
+	   define last_name / display 'Last Name';
+	   define include_c / display 'Included in*Summaries';
+	   define not_include_reason / display 'Reason Not*Included in*Summary';
+	   define plan_type / display 'Plan Type';
+
+	%macro obs(var);
+	   define &var._expected_u / display "# Expected";
+	   define &var._not_started_u / display "# Not Started";
+	   define &var._start_not_comp_u / display 'Started*but not*Completed';
+	   define &var._completed_not_shared_u / display 'Completed*but not*Shared With* Ratings';
+	   define &var._completed_u / display 'Completed* and Shared*With Ratings';
+	%mend obs;
+	%obs(total); %obs(inf_case); %obs(formal);
+
+	   define location_code / display 'School Code(s) / Orginization Unit(s)';
+	   define total_notes / display 'School Name(s) / Orginization (s)';
+%mend educator_detail;
+
+/** Prep for the reports **/
+
+data hold;
+    format asofdate weekdate25.;
+    asofdate_x = input("&obs_extract_date",mmddyy8.);
+	asofdate = asofdate_x - 1; 
+    call symput('asofdate',left(put(asofdate,weekdate25.)));
+run;
+
+ods listing close;
+
+/** Lets create the District wide report **/
+%macro district_reports(var);
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\xml\REACH_Obs_Report_CPS_&todayfm._&var..xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="District Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "Chicago Public Schools";
+  title3 "District Summary";
+  title4 "As of &asofdate";
+
+  proc report data=summary_of_obs_CPS_b nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+    %summary_of_obs;
+
+  run;
+
+  title1;
+  title2;
+  title3;
+  title4;
+ 
+  proc report data=summary_of_eds_CPS_c nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+    %summary_of_eds;
+
+  run;
+
+ ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Network Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "Chicago Public Schools";
+  title3 "Network Summary";
+  title4 "As of &asofdate";
+ 
+  proc report data=summary_ntwk_onerow nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+	column network_sort network	
+	%ntwk_unit_summary_display1
+
+    define network_sort / order noprint;
+	define network / display 'Network';
+
+	%ntwk_unit_summary_display2
+    
+run;
+
+ ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Unit Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "Chicago Public Schools";
+  title3 "Unit Summary";
+  title4 "As of &asofdate";
+ 
+  proc report data=summary_sch_onerow nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+	column network_sort network	school_code school_short_name
+	%ntwk_unit_summary_display1
+
+    define network_sort / order noprint;
+	define network / display 'Network';
+    define school_code / display 'School_code';
+    define school_short_name / display 'School Name';
+
+	%ntwk_unit_summary_display2
+    
+run;
+
+%if "&var" = "with_educator_detail" %then %do;
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Educator Detail");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "Chicago Public Schools";
+  title3 "Educator Detail";
+  title4 "As of &asofdate";
+ 
+  proc report data=TNL_DATA_CPS_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+  %educator_detail;
+
+run;
+%end;
+
+ods tagsets.excelxp close;
+%mend district_reports;
+**%district_reports(with_educator_detail);
+**%district_reports(without_educator_detail);
+
+/*** Create Network Reports ***/
+proc sql;
+create table macro_calls_ntwk as
+select distinct network from TNL_DATA_sch_a
+order by network;
+run;
+
+data macro_calls_reg_rosters_nework;
+   set macro_calls_ntwk;
+      
+	 file "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\macrocalls_REACH_Obs_report_ntwk_001.sas";
+	 put '%ntwk(' network ')';
+  
+run;
+
+
+%macro ntwk(network);
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\xml\network\REACH_Obs_Report_&todayfm._&network..xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Network Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "&network";
+  title3 "Network Summary";
+  title4 "As of &asofdate";
+
+  proc report data=summary_of_obs_ntwk_b nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where network = "&network";  
+
+    %summary_of_obs;
+  run;
+
+  title1;
+  title2;
+  title3;
+  title4;
+ 
+  proc report data=summary_of_eds_ntwk_c nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where network = "&network";  
+
+	%summary_of_eds;
+  run;
+
+ ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Unit Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "Network: &network";
+  title3 "Unit Summary";
+  title4 "As of &asofdate";
+ 
+  proc report data=summary_sch_onerow nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where network = "&network";  
+
+	column network_sort network	school_code school_short_name
+	%ntwk_unit_summary_display1
+
+    define network_sort / order noprint;
+	define network / display 'Network';
+    define school_code / display 'School_code';
+    define school_short_name / display 'School Name';
+
+	%ntwk_unit_summary_display2
+
+run;
+
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Educator Detail");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "Network: &network";
+  title3 "Educator Detail";
+  title4 "As of &asofdate";
+
+  proc report data=TNL_DATA_ntwk_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where network = "&network";  
+
+  %educator_detail;
+
+
+run;
+ods tagsets.excelxp close;
+%mend ntwk;
+**%include "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\macrocalls_REACH_Obs_report_ntwk_001.sas";
+
+/** Now create the unit summaries **/
+
+proc sql;
+create table macro_calls_sch as
+select distinct school_code, network, school_short_name from TNL_DATA_sch_a
+order by school_code;
+run;
+
+data macro_calls_reg_rosters_schools;
+   set macro_calls_sch;
+      
+	 file "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\macrocalls_REACH_Obs_report_unit_001.sas";
+	 put '%sch(' school_code ',' school_short_name ',' network ')';
+  
+run;
+
+
+%macro sch(school_code,school_cy,network);
+
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\xml\unit\REACH_Obs_Report_&todayfm._&school_code..xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Unit Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report - Unit Summary";
+  title2 "&school_cy (&school_code.)";
+  title3 "Network: &network";
+  title4 "As of &asofdate";
+
+  proc report data=summary_of_obs_sch_b nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where school_code = "&school_code";  
+
+    %summary_of_obs
+  run;
+
+  title1;
+  title2;
+  title3;
+  title4;
+ 
+  proc report data=summary_of_eds_sch_c nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where school_code = "&school_code";  
+
+	%summary_of_eds
+  run;
+
+ 
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Educator Detail");
+
+  title1 "2015-2016 REACH Observation Monitoring Report - Educator Detail";
+  title2 "&school_cy (&school_code.)";
+  title3 "Network: &network";
+  title4 "As of &asofdate";
+ 
+  proc report data=TNL_DATA_sch_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where school_code = "&school_code";  
+
+    %educator_detail;
+
+run;
+ods tagsets.excelxp close;
+%mend sch;
+**%include "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\macrocalls_REACH_Obs_report_unit_001.sas";
+
+
+/** Lets create the ODLSS reports **/
+%macro ODLSS_REPORT(var1,var2);
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2015-2016\Observation Monitoring\xml\REACH_Obs_Report_&todayfm._&var1..xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="District Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "&var2";
+  title3 "District Summary";
+  title4 "As of &asofdate";
+
+  proc report data=summary_of_obs_&var1._b nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+    %summary_of_obs;
+
+  run;
+
+  title1;
+  title2;
+  title3;
+  title4;
+ 
+  proc report data=summary_of_eds_&var1._c nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+    %summary_of_eds;
+
+  run;
+
+ ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Network Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "&var2";
+  title3 "Network Summary";
+  title4 "As of &asofdate";
+ 
+  proc report data=summary_&var1.ntwk_onerow nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+	column network_sort network	
+	%ntwk_unit_summary_display1
+
+    define network_sort / order noprint;
+	define network / display 'Network';
+
+	%ntwk_unit_summary_display2
+    
+run;
+
+ ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Unit Summary");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "&var2";
+  title3 "Unit Summary";
+  title4 "As of &asofdate";
+ 
+  proc report data=summary_&var1.sch_onerow nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+	column network_sort network	school_code school_short_name
+	%ntwk_unit_summary_display1
+
+    define network_sort / order noprint;
+	define network / display 'Network';
+    define school_code / display 'School_code';
+    define school_short_name / display 'School Name';
+
+	%ntwk_unit_summary_display2
+    
+run;
+
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Educator Detail");
+
+  title1 "2015-2016 REACH Observation Monitoring Report";
+  title2 "&var2";
+  title3 "Educator Detail";
+  title4 "As of &asofdate";
+ 
+  proc report data=TNL_DATA_&var1._a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+
+  %educator_detail;
+
+run;
+
+ods tagsets.excelxp close;
+%mend ODLSS_REPORT;
+%ODLSS_REPORT(OBP, ODLSS - BIENNIAL EMPLOYEES);
+%ODLSS_REPORT(ONBP, ODLSS - NON-BIENNIAL EMPLOYEES);
+
+ods listing;
+
+data obsdata.REACH_Obs_Report_Detail_LOAD (keep= 
+                       school_year
+                       emp_id_num emp_id_char last_name first_name staff_status include include_c not_include_reason
+                       plan_type 
+		               formal_adjusted_ind inf_case_adjusted_ind
+		               formal_adjusted_ind_c inf_case_adjusted_ind_c
+  	                   formal_expected_u formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+  	                   formal_expected   formal_not_started     formal_start_not_comp     formal_completed_not_shared     formal_completed 
+
+                       inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u 
+                       inf_case_expected   inf_case_not_started   inf_case_start_not_comp   inf_case_completed_not_shared   inf_case_completed 
+
+                       total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u
+                       total_expected      total_not_started      total_start_not_comp      total_completed_not_shared      total_completed  
+					   school_code network school_short_name school_code_list school_name_list
+
+                       obs_extract_date planinfo_date payroll_date
+					   sys_etl_scource_project sys_etl_scource_program sys_created loaded_by
+                       );
+attrib school_year emp_id_num emp_id_char last_name first_name staff_status include include_c not_include_reason
+                       plan_type 
+		               formal_adjusted_ind inf_case_adjusted_ind
+		               formal_adjusted_ind_c inf_case_adjusted_ind_c
+  	                   formal_expected_u formal_not_started_u   formal_start_not_comp_u   formal_completed_not_shared_u   formal_completed_u
+  	                   formal_expected   formal_not_started     formal_start_not_comp     formal_completed_not_shared     formal_completed 
+
+                       inf_case_expected_u inf_case_not_started_u inf_case_start_not_comp_u inf_case_completed_not_shared_u inf_case_completed_u 
+                       inf_case_expected   inf_case_not_started   inf_case_start_not_comp   inf_case_completed_not_shared   inf_case_completed 
+
+                       total_expected_u    total_not_started_u    total_start_not_comp_u    total_completed_not_shared_u    total_completed_u
+                       total_expected      total_not_started      total_start_not_comp      total_completed_not_shared      total_completed  
+					   school_code network school_short_name school_code_list school_name_list
+
+                       obs_extract_date planinfo_date payroll_date
+					   sys_etl_scource_project sys_etl_scource_program sys_created loaded_by label='';
+  set TNL_DATA_B;
+
+       
+
+	   length school_code_list $145. school_name_list $200.
+              school_year obs_extract_date planinfo_date payroll_date loaded_by  $10. sys_etl_scource_project $80. sys_etl_scource_program $60. 
+              sys_created $30. ;
+ 	   school_code_list = location_code;
+	   school_name_list = total_notes;
+	   school_year = "2015-2016";
+       obs_extract_date = "&obs_extract_date";
+       planinfo_date = "&planinfo_date";
+       payroll_date = "&payroll_date";
+
+       sys_etl_scource_project = "F:\SASFiles\Accountability\Programs\REACH\REACH Reports Code.egp";
+	   sys_etl_scource_program = "REACH Observation Report";
+       sys_created = put(today(),mmddyy10.) ||' '|| put(TIME(),time8.2);
+       loaded_by = 'HMORRIS';
+run;
+
+
+
+/** Load data on tables for posteriety **/
+%macro skip;
+
+proc SQL;
+Connect to odbc(datasrc="Dev_ODSSupport" ) ;
+*comment out drop table unless you are doing a rerun;
+execute (IF OBJECT_ID('dbo.ACCT_STG_REACH_Obesrvation_Report_Detail') IS NOT NULL
+         drop TABLE dbo.ACCT_STG_REACH_Obesrvation_Report_Detail
+        ) by odbc; 
+execute (CREATE TABLE dbo.ACCT_STG_REACH_Obesrvation_Report_Detail(
+      [school_year] [varchar](10) NOT NULL,
+      [emp_id_num] [int],
+      [emp_id_char] [varchar](28) NOT NULL,
+      [last_name] [varchar](30) NOT NULL,
+      [first_name] [varchar](30) NOT NULL,
+      [staff_status] [varchar](30) NOT NULL,
+      [include] [smallint] NOT NULL,
+      [include_c] [varchar](3) NOT NULL,
+      [not_include_reason] [varchar](40) NOT NULL,
+      [plan_type] [varchar](60) NOT NULL,
+      [formal_adjusted_ind] [smallint] NOT NULL,
+      [inf_case_adjusted_ind] [smallint] NOT NULL,
+      [formal_adjusted_ind_c] [varchar](3) NOT NULL,
+      [inf_case_adjusted_ind_c] [varchar](3) NOT NULL,
+      [formal_expected_u] [int] NOT NULL,
+      [formal_not_started_u] [int] NOT NULL,
+      [formal_start_not_comp_u] [int] NOT NULL,
+      [formal_completed_not_shared_u] [int] NOT NULL,
+      [formal_completed_u] [int] NOT NULL,
+      [formal_expected] [int] NOT NULL,
+      [formal_not_started] [int] NOT NULL,
+      [formal_start_not_comp] [int] NOT NULL,
+      [formal_completed_not_shared] [int] NOT NULL,
+      [formal_completed] [int] NOT NULL,
+      [inf_case_expected_u] [int] NOT NULL,
+      [inf_case_not_started_u] [int] NOT NULL,
+      [inf_case_start_not_comp_u] [int] NOT NULL,
+      [inf_case_completed_not_shared_u] [int] NOT NULL,
+      [inf_case_completed_u] [int] NOT NULL,
+      [inf_case_expected] [int] NOT NULL,
+      [inf_case_not_started] [int] NOT NULL,
+      [inf_case_start_not_comp] [int] NOT NULL,
+      [inf_case_completed_not_shared] [int] NOT NULL,
+      [inf_case_completed] [int] NOT NULL,
+      [total_expected_u] [int] NOT NULL,
+      [total_not_started_u] [int] NOT NULL,
+      [total_start_not_comp_u] [int] NOT NULL,
+      [total_completed_not_shared_u] [int] NOT NULL,
+      [total_completed_u] [int] NOT NULL,
+      [total_expected] [int] NOT NULL,
+      [total_not_started] [int] NOT NULL,
+      [total_start_not_comp] [int] NOT NULL,
+      [total_completed_not_shared] [int] NOT NULL,
+      [total_completed] [int] NOT NULL,
+      [school_code] [varchar](10) NOT NULL,
+      [network] [varchar](50) NOT NULL,
+      [school_short_name] [varchar](80) NOT NULL,
+      [school_code_list] [varchar](145) NOT NULL,
+      [school_name_list] [varchar](200) NOT NULL,
+      [obs_extract_date] [varchar](10) NOT NULL, 
+      [planinfo_date payroll_date] [varchar](10) NOT NULL,
+      [sys_etl_scource_project] [varchar](80) NOT NULL, 
+      [sys_etl_scource_program] [varchar](60) NOT NULL, 
+      [sys_created] [varchar](30) NOT NULL, 
+      [loaded_by] [varchar](10) NOT NULL
+) by odbc;
+
+*Creating a unique index is optional;
+execute(create unique clustered index cy_ind on 
+        dbo.ACCT_STG_REACH_Obesrvation_Report_Detail(school_year,emp_id_num,obs_extract_date,planinfo_date,payroll_date)
+) by odbc;
+Disconnect from odbc; 
+quit;
+run ;
+
+libname dev_ods ODBC datasrc=Dev_ODSSupport schema=dbo;
+
+data dev_ods.ACCT_STG_REACH_Obesrvation_Report_Detail;
+set REACH_Obs_Report_Detail_LOAD;
+%mend skip;

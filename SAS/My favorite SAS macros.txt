@@ -1,0 +1,54 @@
+/** My favorite macros **/
+/** Way to transpose multiple things at one **/
+%macro rotate(rotate_in,rotate_data,idline,byline);
+
+proc transpose data=&rotate_in out=&rotate_data._0 prefix=&rotate_data._;  &byline
+  var &rotate_data;
+  id &idline;
+run;
+
+%if "&byline" NE "" %then %do;
+  proc sort data = &rotate_data._0; &byline
+  run;
+%end;
+
+%mend rotate;
+** %rotate(<file in>,<column to transpose>,<id line>,<by line>); 
+** If by line not blank then sort by it.
+** Rotate data node is used as prefix.  Output is file in name followed by _0
+** EXAMPLE: %rotate(isat_value_added_b,isat_va_score_read,%str(year),%str(by school_id;)); 
+
+/** Shows dups based on key**/
+%macro dup_check(dup_file_in,dup_key);
+
+data _null_;
+    
+    no_comma_dup_key = translate("&dup_key", " ", ",");
+
+	put no_comma_dup_key;
+
+	call symput('no_comma_dup_key',no_comma_dup_key);
+run;
+
+proc sql;
+  create table &dup_file_in._dup as 
+  (select  &dup_key., count(*) as num_dup
+     from &dup_file_in.
+	group by &dup_key.
+	having count(*) > 1
+  );
+
+  proc sort data = &dup_file_in.; by &no_comma_dup_key.;
+
+data &dup_file_in._dups;
+   merge  &dup_file_in._dup (in=in_dup) &dup_file_in.; by &no_comma_dup_key.;
+
+   if in_dup;
+run;
+
+title "&dup_file_in. has duplicates based on the(se) &dup_key. field(s)";
+proc print data=&dup_file_in._dups;
+%mend dup_check;
+** %dup_check(<filename>,<check dup by fields>);
+** EXAMPLE: %dup_check(principal_info_b,%str(prin_id_num,school_year));
+

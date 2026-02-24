@@ -1,0 +1,290 @@
+libname perftask "F:\SASFiles\Accountability\Users\khouser\REACH\2015\jj\";
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take today's date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today       **;
+
+data _null_;
+
+    call symput('todayfm',substr(put(today(),mmddyy10.),7,4)||
+                          substr(put(today(),mmddyy10.),1,2)||
+                          substr(put(today(),mmddyy10.),4,2)|| '_' ||
+						  substr(put(TIME(),hhmm.),1,2) ||
+						  substr(put(TIME(),hhmm.),4,2)
+			   ); 
+    
+	
+run;
+data _null_;
+put "&todayfm";
+run;
+
+proc SQL;
+  Connect to odbc(datasrc="DW_K12INTEL_QA"); 
+  create table staff_a as
+  Select * from connection to odbc 
+  (select cast(staff_employee_id as int) as emp_id_num, staff_name as staff_name_x
+     from k12intel_DW.DTBL_STAFF
+   where 1=1
+     and isnumeric(staff_employee_id)=1
+  );
+
+/*
+  create table school_a as
+  Select * from connection to odbc 
+  (select
+     school_year
+    ,case
+       when isnumeric(school_code)=1 then cast(school_code as int)
+       else 0
+     end as school_code
+    ,school_short_name
+    from k12intel_DW.DTBL_SCHOOL_ANNUAL_ATTRIBS
+    where 1=1
+      and SCHOOL_STATUS = 'OPEN'
+  );
+*/
+
+Disconnect from odbc; 
+quit;
+
+data perf_task_single_a;
+  set perftask.pt_std_level_single_20160115;
+
+  length emp_id_char $10.;   
+  emp_id_char = StaffUniqueID;
+
+  length emp_id_num 8.;
+  if anyalpha(StaffUniqueID) > 0 then do;
+     if index(StaffUniqueID,'PLA') > 0 then emp_id_num = substr(StaffUniqueID,1,6) * 1;
+  end;
+  else emp_id_num = StaffUniqueID * 1;
+ 
+  drop StaffUniqueID;
+
+run;
+
+/*
+proc print data=perf_task_single_a;
+where index(emp_id_char,'PLA') > 0;
+run;
+*/
+
+data perf_task_multiple_a;
+  set perftask.pt_std_level_multiple_20160115;
+
+  length emp_id_char $10.;   
+  emp_id_char = StaffUniqueID;
+
+  length emp_id_num 8.;
+  if anyalpha(StaffUniqueID) > 0 then do;
+     if index(StaffUniqueID,'PLA') > 0 then emp_id_num = substr(StaffUniqueID,1,6) * 1;
+  end;
+  else emp_id_num = StaffUniqueID * 1;
+ 
+  drop StaffUniqueID;
+  
+run;
+  
+proc append data=perf_task_single_a out=perf_task_multiple_a;
+
+data perf_task_summ_a;
+   set perftask.pt_final_file_20160115;
+
+  length emp_id_num 8.;
+  if anyalpha(TEACHER_ID) > 0 then do;
+     if index(TEACHER_ID,'PLA') > 0 then emp_id_num = substr(TEACHER_ID,1,6) * 1;
+  end;
+  else emp_id_num = TEACHER_ID * 1;
+run; 
+
+proc sort data = perf_task_summ_a; by emp_id_num;
+proc sort data = perf_task_multiple_a; by emp_id_num;
+
+data perf_task_multiple_b
+     whoa_baby
+     perf_task_drop_duetotype;
+  merge perf_task_multiple_a (in=in_roster) perf_task_summ_a (in=in_summ); by emp_id_num;
+
+        if in_roster and not in_summ then output whoa_baby;
+   else if not in_roster and in_summ then output whoa_baby;
+   else if in_roster and in_summ and type not in ('3.12','No Data') then output perf_task_multiple_b;
+   else output perf_task_drop_duetotype;
+run;
+
+proc freq data=perf_task_multiple_b;
+  table pre_score*post_score / missing;
+run;
+ 
+data performance_tasks_a; /*(keep= emp_id_num emp_id_char school_code Student_id Student_name Grade_15 Task Pre_score Post_score task_growth);*/
+    rename DistrictStudentID = Student_id
+           Student = Student_name
+           StudentGradeLevel= Grade_15;
+   set perf_task_multiple_b;
+ 
+
+           Task_a = tranwrd(Pre_Task,"SY14-15","");
+           Task_b = tranwrd(Task_a,"BOY","");
+           Task_c = tranwrd(Task_b,"MOY","");
+           Task_d = tranwrd(Task_c,"EOY","");
+           Task_e = tranwrd(Task_d,"SY14","");
+           Task = trim(Task_e);
+		   length task_growth $5.;
+		   if PT_growth_num = 1 then task_growth = 'Yes'; else task_growth = 'No';
+
+		   if (Pre_score = . or Post_score = . ) then score_null_indicator = 1; else score_null_indicator = 0;
+		   if (Pre_score = .) then Pre_score = 0;
+		   if (Post_score = .) then Post_score = 0;
+	       
+run;   
+
+proc freq data=performance_tasks_a;
+  table task_growth*score_null_indicator task;
+run;
+
+proc sort data=performance_tasks_a; by emp_id_num;
+proc sort data=staff_a nodupkey; by emp_id_num;
+
+data performance_tasks_b (keep= emp_id_num emp_id_char staff_name school_code 
+                                Student_id Student_name Grade_15 Task Pre_score Post_score task_growth score_null_indicator);
+   attrib emp_id_num emp_id_char staff_name school_code Student_id Student_name Grade_15 Task Pre_score Post_score task_growth 
+          score_null_indicator label='';
+   merge performance_tasks_a (in=in_tasks) staff_a; by emp_id_num;
+
+   if in_tasks;
+
+   staff_name= compress(staff_name_x,"',."); 
+   
+run;
+
+proc sql;
+create table emp_task_growth_null_indicatot as 
+(select emp_id_char,  staff_name, count(*) as score_null_indicator_cnt
+from performance_tasks_b
+where score_null_indicator = 1
+group by emp_id_char,  staff_name);
+run;
+
+
+
+proc sql;
+create table macro_calls as 
+(select distinct emp_id_num, emp_id_char, staff_name, max(score_null_indicator) as score_null_indicator
+   from performance_tasks_b
+ group by emp_id_num, emp_id_char, staff_name);
+
+data macro_calls_b;
+   set macro_calls;
+
+     file "\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\macrocalls_emp_001.sas";
+     put '%rosters(' emp_id_num ',' emp_id_char ',' staff_name ',' score_null_indicator ')';
+	 **put _all_;
+  run;
+
+
+proc sort data=performance_tasks_b; by emp_id_num Grade_15 Student_name score_null_indicator;
+
+ods listing close;
+ods escapechar='^';
+options ls=196 ps=49   Orientation = Landscape device='ACTXIMG' noquotelenmax;
+
+%macro rosters(emp_id_num, emp_id_char ,name, ind);
+%if &ind = 1 %then %DO;
+     ods pdf file="\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\pdf_ind_null\perf_task_rosters_&emp_id_char..pdf";
+%end;
+%else %do; 
+     ods pdf file="\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\pdf\perf_task_rosters_&emp_id_char..pdf";
+%end;
+
+  title1 '^S={just=Left preimage="\\ADMIN\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Value Added Rosters for Teachers\CPS Logo.JPG" posttext=""';
+  title2 f="Helvetica/bold" h=18pt j=c "Performance Task Roster for 2014-2015";
+  title3 f="Helvetica/bold" h=15pt j=c "&name - (Staff ID: &emp_id_char.)";
+  title4 f="Calibri" h=10pt j=l c=royalblue "The roster below lists the students who were included in the calculation of your REACH Performance Task (PT) growth score(s) for school year 2014-2015. A student counted towards your PT growth score if: ";
+  title5 f="Calibri" h=10pt j=l c=royalblue "1)	The student had a BOY performance task score inputted into CIM during an approved entry window. ";
+  title6 f="Calibri" h=10pt j=l c=royalblue "2)	The student had a score for the corresponding EOY performance task inputted into CIM during the approved entry window. ";
+  title7 f="Calibri" h=10pt j=l c=royalblue "3)	You verified that student for that task in the Performance Task (PT) Verification process. *";
+  title8 f="Calibri" h=10pt j=l c=royalblue "For each student listed below, the table includes the name of the task administered, the BOY summative score 
+ achieved (0 – 3), the EOY summative score achieved (0 – 3), and whether the student made growth from BOY to EOY.  A student counted as making growth if his/her summative score increased from the BOY to EOY administrations or if he/she achieved a '3' on both BOY and EOY tasks.";
+  title9 ".";
+  title10 f="Calibri" h=10pt j=l c=royalblue "*If you did not have any students that satisfied the above three conditions, roster verification data
+  was used to connect a student’s PT growth score to you based on the task the student took and the course in which you taught the student.";
+
+  proc report data=performance_tasks_b (firstobs=1 obs=10) nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where emp_id_num = &emp_id_num;  
+
+    column Student_id Student_name Grade_15 Task Pre_score Post_score task_growth;
+
+    define Student_id / display left 'Student ID';
+    define Student_name / display left 'Student Name';
+    define Grade_15 / display center 'Grade*Level*(SY15)';
+    define Task / display left 'Task Administered';
+    define Pre_score / display center 'BOY Summative*Score (0 – 3)';
+	define Post_score / display center 'EOY Summative*Score (0 – 3)';
+    define task_growth / display center 'Did the*student make*growth?';
+ run;
+ 
+title1; title2; title3; title4; title5; title6; title7; title8; title9; title10;
+
+  proc report data=performance_tasks_b (firstobs=11 obs=max) nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where emp_id_num = &emp_id_num;  
+
+    column Student_id Student_name Grade_15 Task Pre_score Post_score task_growth;
+
+    define Student_id / display left 'Student ID';
+    define Student_name / display left 'Student Name';
+    define Grade_15 / display center 'Grade*Level*(SY15)';
+    define Task / display left 'Task Administered';
+    define Pre_score / display center 'BOY Summative*Score (0 – 3)';
+	define Post_score / display center 'EOY Summative*Score (0 – 3)';
+    define task_growth / display center 'Did the*student make*growth?';
+ run;
+
+
+ ods pdf close;
+%mend rosters;
+/*
+%rosters(34708 ,000034708 ,Niki Liakopoulos ,0 )
+%rosters(2004 ,000002004 ,Jennifer F Brown ,0 )
+%rosters(2015 ,000002015 ,Rosemarie Foy ,0 )
+%rosters(2019 ,000002019 ,Diane Elizabeth Gansho ,0 )
+%rosters(2021 ,000002021 ,Mrs.Amy Elizabeth Almer ,0 )
+%rosters(2028 ,000002028 ,Steven J Noel ,0 )
+%rosters(2030 ,000002030 ,Susan Esteri Gustavson ,0 )
+%rosters(2052 ,000002052 ,Mary Patricia Huebner ,0 )
+%rosters(2075 ,000002075 ,Mojgan Majdzadeh ,0 )
+%rosters(2116 ,000002116 ,Tory Lyn Waterman ,0 )
+%rosters(2161 ,000002161 ,Wanda Y Cornier ,0 )
+%rosters(2198 ,000002198 ,Wanda Pagan ,0 )
+%rosters(2212 ,000002212 ,Felice Margaret Madda ,0 )
+%rosters(2220 ,000002220 ,Asma A Khudeira ,0 )
+%rosters(2223 ,000002223 ,Eric Scott Wagner ,0 )
+*/
+%include '\\admin\deptdata\CEO\OA\PDP\REACH Summative Rating\2014-2015\Performance Task Rosters for Teachers\macrocalls_emp_001.sas';
+
+
+%macro skip;
+proc sort data=school_a; by school_code school_year;
+
+data school_b;
+  set school_a; by school_code;
+
+  if last.school_code;
+run;
+
+proc sort data=performance_tasks_b; by school_code;
+
+
+data performance_tasks_c (keep= emp_id_num emp_id_char staff_name school_code school_short_name Student_id Student_name Grade_15 Task Pre_score Post_score task_growth);
+   attrib emp_id_num emp_id_char staff_name school_code school_short_name Student_id Student_name Grade_15 Task Pre_score Post_score task_growth label='';
+   merge performance_tasks_b (in=in_tasks) school_a; by school_code;
+
+   if in_tasks;
+
+run;
+
+proc contents data=staff_a varnum;
+proc contents data=school_a varnum;
+%mend skip;

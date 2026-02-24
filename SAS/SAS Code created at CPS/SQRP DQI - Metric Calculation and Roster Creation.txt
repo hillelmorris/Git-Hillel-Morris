@@ -1,0 +1,1270 @@
+** TO Create input table see SSIS package:
+
+
+************************************************************************************;
+** This nifty piece of code is used to name a node in the output file.            **;
+** It will take today's date, manipulate it so it looks like yyyymmdd, and place  **;
+** it in a macro variable named today       **;
+data _null_;
+		call symput( 'todayfm' ,substr (put (today(),mmddyy10.),7,4) ||
+		substr (put (today(),mmddyy10.),1,2) ||
+		substr (put (today(),mmddyy10.),4,2) || '_' ||
+		substr (put (TIME(),hhmm.),1,2) ||
+		substr (put (TIME(),hhmm.),4,2)
+		);
+run;
+
+libname ods_dw ODBC datasrc=DEV_ODSSUPPORT schema=dbo;
+LIBNAME DW ODBC datasrc=DW_K12INTEL_QA schema=K12INTEL_DW;
+
+/** Per Ryan okay to remove Jefferson HS (609783) as they had a slew of unsubmitted attendance and it was 
+causing issues on VBA side */
+
+proc SQL;
+Connect to odbc(datasrc="ODS_PROD" ); 
+create table dqi_a as 
+Select * from connection to odbc 	
+(SELECT 			
+     ID.CPSSchoolID as School_Code			
+	/*,M.IDDataQualityArea		*/
+	,M.IDDataQualityMeasure		
+	,M.MeasureName		
+	,DQI_S.EffectiveDate		
+	,DQI_S.Numerator		
+    ,DQI_S.Denominator			
+    ,DQI_D.ErrorDetailKeyValue as SID			
+	,DQI_D.Notes		
+			
+FROM [ODS_1516].[dbo].ODS_DataQualityDetail DQI_D WITH (NOLOCK)			
+			
+INNER JOIN [ODS_1516].[dbo].ODS_DataQualitySummary DQI_S WITH (NOLOCK) 			
+  ON DQI_D.IDDataQualitySummary = DQI_S.IDDataQualitySummary 			
+  /*
+ AND DQI_D.STAGE_SCHOOL_YEAR = DQI_S.STAGE_SCHOOL_YEAR			
+ and DQI_D.ErrorDetailKeyType = 'StudentID'			
+  */
+ 			
+INNER JOIN [ODS_1516].[dbo].ODS_DataQualityMeasure M WITH (NOLOCK) 			
+  ON DQI_S.IDDataQualityMeasure = M.IDDataQualityMeasure			
+  and M.IDDataQualityMeasure in (16,10,2,31,22,15,25,28,29,30,7,3,4,12,17)	
+  /* and M.IDDataQualityMeasure in (22)					*/
+  /*			
+  IDDataQualityMeasure	MeasureName		
+10	Invalid Enrollment Code		
+2	Invalid Leave Code		
+31	Missing Federal Race or Ethnicity		
+3	Missing Phone Number		
+4	Missing Physical Address		
+12	Missing Physical and Mailing Address		
+22	No Future Enrollment		
+15	Potential Drop Out		
+25	Student Grade Level Changes After PR4		
+28	Students Enrolled After PR4		
+29	Students Projected to Closed Schools		
+30	Students Withdrawn After PR4		
+16	Unsubmitted Attendance		
+7	Unverified Out of District Transfers		
+17	Unverified Phone Numbers		
+*/			
+			
+			
+INNER JOIN [ODS_1516].[dbo].ODS_DataQualityArea WITH (NOLOCK) 			
+  ON M.IDDataQualityArea = ODS_DataQualityArea.IDDataQualityArea			
+			
+inner join (SELECT MAX(EffectiveDate) AS MaxEffectiveDate			
+               ,IDOrganizationUnit			
+               ,IDDataQualityMeasure			
+               FROM [ODS_1516].[dbo].[ODS_DataQualitySummary] WITH (NOLOCK)			
+			   where Upper(StatusName) not in ('DELETED')
+			     and EffectiveDate <= '2016-06-29'
+               GROUP BY IDOrganizationUnit			
+                    ,IDDataQualityMeasure			
+			) AS LASTDAY
+             ON LASTDAY.IDOrganizationUnit = DQI_S.IDOrganizationUnit			
+            AND LASTDAY.IDDataQualityMeasure = DQI_S.IDDataQualityMeasure			
+            and LASTDAY.MaxEffectiveDate = DQI_S.EffectiveDate			
+			
+ inner join [ODSSupport].[dbo].[INT_OrganizationUnit_20160630] ID			
+   ON LASTDAY.IDOrganizationUnit = ID.IDOrganizationUnit			
+   and ID.CPSSchoolID <>'609783'
+);
+
+/* Per Chris T. Do medically non compliant seperately and look at 28th instead of 29th */
+create table dqi_MNC as 
+Select * from connection to odbc 	
+(SELECT 			
+     ID.CPSSchoolID as School_Code			
+	/*,M.IDDataQualityArea		*/
+	,M.IDDataQualityMeasure		
+	,M.MeasureName		
+	,DQI_S.EffectiveDate		
+	,DQI_S.Numerator		
+    ,DQI_S.Denominator			
+    ,DQI_D.ErrorDetailKeyValue as SID			
+	,DQI_D.Notes		
+			
+FROM [ODS_1516].[dbo].ODS_DataQualityDetail DQI_D WITH (NOLOCK)			
+			
+INNER JOIN [ODS_1516].[dbo].ODS_DataQualitySummary DQI_S WITH (NOLOCK) 			
+  ON DQI_D.IDDataQualitySummary = DQI_S.IDDataQualitySummary 			
+  /*
+ AND DQI_D.STAGE_SCHOOL_YEAR = DQI_S.STAGE_SCHOOL_YEAR			
+ and DQI_D.ErrorDetailKeyType = 'StudentID'			
+  */
+ 			
+INNER JOIN [ODS_1516].[dbo].ODS_DataQualityMeasure M WITH (NOLOCK) 			
+  ON DQI_S.IDDataQualityMeasure = M.IDDataQualityMeasure			
+   and M.IDDataQualityMeasure in (14)					
+  /*			
+  IDDataQualityMeasure	MeasureName		
+14	Non Compliant Medical		
+*/			
+			
+			
+INNER JOIN [ODS_1516].[dbo].ODS_DataQualityArea WITH (NOLOCK) 			
+  ON M.IDDataQualityArea = ODS_DataQualityArea.IDDataQualityArea			
+			
+inner join (SELECT MAX(EffectiveDate) AS MaxEffectiveDate			
+               ,IDOrganizationUnit			
+               ,IDDataQualityMeasure			
+               FROM [ODS_1516].[dbo].[ODS_DataQualitySummary] WITH (NOLOCK)			
+			   where Upper(StatusName) not in ('DELETED')
+			     and EffectiveDate <= '2016-06-28'
+               GROUP BY IDOrganizationUnit			
+                    ,IDDataQualityMeasure			
+			) AS LASTDAY
+             ON LASTDAY.IDOrganizationUnit = DQI_S.IDOrganizationUnit			
+            AND LASTDAY.IDDataQualityMeasure = DQI_S.IDDataQualityMeasure			
+            and LASTDAY.MaxEffectiveDate = DQI_S.EffectiveDate			
+			
+ inner join [ODSSupport].[dbo].[INT_OrganizationUnit_20160630] ID			
+   ON LASTDAY.IDOrganizationUnit = ID.IDOrganizationUnit			
+   and ID.CPSSchoolID <> '609783'
+ );
+quit;
+
+
+proc SQL;
+	Connect to odbc(datasrc="DW_K12INTEL_QA");
+	create table school_choice_a as
+		Select * from connection to odbc 
+		(select 
+         CSL_STD_DEMO_DISTRICT.STD_NUMBER as SID
+        ,CASE projected_school_choice
+           when 'None' then 1
+	       else 0
+         END as projected_equal_none_ind
+         from K12INTEL_STAGING_SMS.CSL_STD_DEMO_DISTRICT
+         inner join (select STD_NUMBER, max(LAST_UPDATE) as max_update
+                       from K12INTEL_STAGING_SMS.CSL_STD_DEMO_DISTRICT
+			          group by STD_NUMBER
+		            ) as MAX_DEMO
+		              on MAX_DEMO.STD_NUMBER = CSL_STD_DEMO_DISTRICT.STD_NUMBER
+		             and MAX_DEMO.max_update = CSL_STD_DEMO_DISTRICT.LAST_UPDATE
+         inner join (select STD_NUMBER, max(STAGE_SCHOOL_YEAR) as max_year
+                       from K12INTEL_STAGING_SMS.CSL_STD_DEMO_DISTRICT
+					   where 1=1
+					     and STAGE_SCHOOL_YEAR = '2015-2016'
+		              group by STD_NUMBER
+		             ) as MAX_YEAR
+		               on MAX_YEAR.STD_NUMBER = CSL_STD_DEMO_DISTRICT.STD_NUMBER
+		               and MAX_YEAR.max_year = CSL_STD_DEMO_DISTRICT.STAGE_SCHOOL_YEAR
+);
+quit;
+
+proc append data=dqi_MNC out=dqi_a;
+
+proc sort data=dqi_a; by SID;
+proc sort data=school_choice_a; by SID;
+
+data dqi_b (keep = SID School_Code IDDataQualityMeasure MeasureName	EffectiveDate Numerator	Denominator	Notes projected_equal_none_ind);
+  merge dqi_a (in=in_dqi) school_choice_a; by SID;
+
+     if in_dqi;
+run;
+
+proc freq data=dqi_b;
+   table MeasureName projected_equal_none_ind;
+run;
+
+proc SQL;
+	Connect to odbc(datasrc="DW_K12INTEL_QA");
+	create table schools_list_a as
+		Select * from connection to odbc 
+			(select cast(school_code as int) as schlid, school_subgroup as network, school_short_name, school_status
+				from k12intel_dw.DTBL_SCHOOL_ANNUAL_ATTRIBS
+					where 1=1
+						and SCHOOL_YEAR = '2015-2016'
+						/*--and school_subgroup <> '--'
+						--and school_staus ='Open'*/
+			);
+	Disconnect from odbc;
+quit;
+
+run;
+
+data dqi_detail_level_x;
+	/*set ods_dw.STG_DQI_2015_07_03;*/
+    set dqi_b;
+   
+	schlid=school_code * 1;
+
+	/*	if school_code in ('400034','610246');
+	   if school_code = '610246';*/
+run;
+
+proc sort data=dqi_detail_level_x; by schlid;
+proc sort data=schools_list_a; by schlid;
+
+data dqi_detail_level school_removed;
+   merge dqi_detail_level_x (in=in_dqi) schools_list_a; by schlid;
+
+       if in_dqi;
+ 
+	        if index(upcase(network),'OPTION') > 0 then output school_removed;
+       else output dqi_detail_level;
+run;
+
+
+proc sql;
+	create table dqi_detail_level_school as
+		select distinct 
+		    network,
+            school_code,
+			IDDataQualityMeasure,
+			MeasureName,
+			Numerator,
+			Denominator
+		from dqi_detail_level
+			where IDDataQualityMeasure in (16,10,2,31,22,15,29,7,3,4,12,17,14);
+quit;
+
+/* PE PK Enrolled in June 2014-2015*/
+data dqi_detail_level_pepk;
+	set dqi_detail_level;
+
+	if IDDataQualityMeasure in (14);
+	student_id=substr(sid,1,8)*1;
+run;
+
+proc SQL;
+	Connect to odbc(datasrc="DW_K12INTEL_QA");
+	create table new_enr_a as
+		Select * from connection to odbc 
+		(select 
+			std.STUDENT_CODE as sid
+			,enr.entry_grade_code
+			,sd.date_value
+		from k12intel_dw.ftbl_enrollments enr
+			inner join k12intel_dw.DTBL_SCHOOL_DATES sd
+				on sd.SCHOOL_DATES_KEY = enr.SCHOOL_DATES_KEY_BEGIN_ENROLL
+			inner join K12INTEL_KEYMAP.KEYMAP_STUDENT_CPSODS std
+				on std.STUDENT_KEY = enr.STUDENT_KEY
+			where 1=1
+				and ENTRY_GRADE_CODE in ('PE','PK')
+				and DATE_VALUE between '06-01-2016' and '06-30-2016'
+			);
+		
+	create table stls_a as
+		Select * from connection to odbc 
+		(select STUDENT_ID as student_id_x, student_homeless_indicator
+           from K12INTEL_DW.DTBL_STUDENT_ANNUAL_ATTRIBS
+          where 1=1 
+            and student_homeless_indicator='YES'
+            and school_year = '2015-2016'
+        );
+	Disconnect from odbc;
+quit;
+
+run;
+
+data new_enr_b;
+	set new_enr_a;
+	student_id = sid * 1;
+	student_pepk_june_enroll = "Yes";
+	drop sid;
+run;
+
+proc sort data=dqi_detail_level_pepk;
+	by student_id;
+run;
+
+proc sort data=new_enr_b;
+	by student_id;
+run;
+
+data dqi_detail_level_pepk_a;
+	merge  dqi_detail_level_pepk (in=master) new_enr_b;
+	by student_id;
+
+	if master;
+run;
+
+***STLS***;
+data dqi_detail_level_stls;
+	set dqi_detail_level;
+
+	if IDDataQualityMeasure in (3,4,12,17,14);
+	student_id=substr(sid,1,8)*1;
+run;
+
+%macro skip;
+
+data SQRPSCHGRDDEM_SY2014_STD_FINAL;
+	set acct_pro.SQRPSCHGRDDEM_SY2014_STD_FINAL;
+
+	if student_homeless_indicator="YES";
+	keep student_id student_homeless_indicator;
+run;
+
+%mend skip;
+
+data SQRPSCHGRDDEM_SY2016_STD_FINAL;
+  set stls_a;
+
+    student_id = student_id_x * 1;
+	keep student_id student_homeless_indicator;
+run;
+
+proc sort data=dqi_detail_level_stls;
+	by student_id;
+run;
+
+proc sort data=SQRPSCHGRDDEM_SY2016_STD_FINAL;
+	by student_id;
+run;
+
+
+data dqi_detail_level_stls_a;
+	merge  dqi_detail_level_stls (in=master) SQRPSCHGRDDEM_SY2016_STD_FINAL;
+	by student_id;
+
+	if master;
+run;
+
+***Help Desk Tickets***;
+data dqi_detail_level_helpdesk;
+	set dqi_detail_level;
+
+	if IDDataQualityMeasure in (22,7,2,15);
+	student_id=substr(sid,1,8)*1;
+run;
+
+proc import datafile="\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\dqi_help_desk_2016.csv"
+	out=dqi_help_desk DBMS=dlm replace;
+	delimiter=',';
+	getnames=yes;
+	guessingrows=30000;
+run;
+
+proc sort data=dqi_detail_level_helpdesk;
+	by student_id;
+run;
+
+proc sort data=dqi_help_desk;
+	by student_id;
+run;
+
+data dqi_detail_level_helpdesk_a;
+	merge dqi_detail_level_helpdesk (in=master) dqi_help_desk;
+	by student_id;
+
+	if master;
+run;
+
+
+***Manual Fix Tickets***;
+data dqi_detail_level_manual_fix;
+	set dqi_detail_level;
+
+	if IDDataQualityMeasure in (14,15,16,17,7);
+
+	if NOTDIGIT(substr(sid,1,8)) then
+		student_id = 0;
+	else student_id=substr(sid,1,8)*1;
+run;
+
+data dqi_manual_fix_a;
+	set dqi_b;
+
+	if NOTDIGIT(substr(sid,1,8)) then
+		student_id = 0;
+	else student_id=substr(sid,1,8)*1;
+
+	/* Per Ryan Clean up:
+	Ignore out of district Transfers for Amandala and Bronzville
+		*/
+	if school_code in ('400019','400012') and IDDataQualityMeasure = 7 then man_fix_applicable = 'Yes';
+
+    /* Per Ryan, CICS,  UofC Charters, and Rowe schools, should exclude all cases of un-submitted attendance */
+
+    if school_code in ('400023','400024','400092','400025','400113','400032','400027',
+                       '400033','400026','400034','400028','400029','400030','400031',
+                       '400075','400076','400077','400078','400096') and IDDataQualityMeasure = 16 then
+		man_fix_applicable = 'Yes';
+
+	if man_fix_applicable NE 'Yes' then
+		delete;
+run;
+
+data dqi_manual_fix_b;
+	set dqi_manual_fix_a;
+
+	if NOTDIGIT(substr(sid,1,8)) then
+		student_id = 0;
+	else student_id=substr(sid,1,8)*1;
+	student_man_fix = "Yes";
+	drop sid;
+
+	/* if student_id = 0 then delete; */
+run;
+
+proc sort data=dqi_detail_level_manual_fix;
+	by school_code IDDataQualityMeasure student_id;
+run;
+
+proc sort data=dqi_manual_fix_b /*nodupkey*/;
+	by school_code IDDataQualityMeasure  student_id;
+run;
+
+proc sql;
+	create table dqi_manual_fix_cnt as
+		(select school_code, student_id, IDDataQualityMeasure, count(*) as man_fix
+			from dqi_manual_fix_b
+				group by school_code, student_id,IDDataQualityMeasure);
+
+	/*having count(*) > 1)*/;
+quit;
+
+run;
+
+title1 'Manual Fixes for Helpdesk';
+
+proc print data=dqi_manual_fix_cnt;
+run;
+
+title1;
+
+data dqi_detail_level_manfix_a;
+	merge  dqi_detail_level_manual_fix (in=master) dqi_manual_fix_b;
+	by school_code IDDataQualityMeasure  student_id;
+
+	if master;
+run;
+
+proc sort data=dqi_detail_level_manfix_a;
+	by school_code student_id IDDataQualityMeasure;
+run;
+
+proc sort data=dqi_detail_level_helpdesk_a;
+	by school_code student_id IDDataQualityMeasure;
+run;
+
+proc sort data=dqi_detail_level_stls_a;
+	by school_code student_id IDDataQualityMeasure;
+run;
+
+proc sort data=dqi_detail_level_pepk_a;
+	by school_code student_id IDDataQualityMeasure;
+run;
+
+data merge_fix_a;
+	merge dqi_detail_level_stls_a dqi_detail_level_pepk_a dqi_detail_level_helpdesk_a dqi_detail_level_manfix_a;
+	by school_code student_id IDDataQualityMeasure;
+run;
+
+%macro skip;
+proc SQL;
+	Connect to odbc(datasrc="DW_K12INTEL_QA");
+	create table schools_list_a as
+		Select * from connection to odbc 
+		(select cast(school_code as int) as schlid ,school_short_name, school_subgroup, school_status
+			from k12intel_dw.DTBL_SCHOOL_ANNUAL_ATTRIBS
+				where 1=1
+					and SCHOOL_YEAR = '2014-2015'
+					/*--and school_subgroup <> '--'
+					--and school_staus ='Open'*/
+			);
+	Disconnect from odbc;
+quit;
+
+run;
+%mend skip;
+
+proc sql;
+	create table merge_fix_b as
+		select network, school_code,
+			count(IDDataQualityMeasure) as count_remove,
+			IDDataQualityMeasure,
+			MeasureName
+		from merge_fix_a
+			where (1 NE 1
+				or student_homeless_indicator="YES"
+				or student_pepk_june_enroll = "Yes"
+				or student_man_fix = "Yes"
+				or helpdesk = "Helpdesk")
+				
+	group by network, school_code, IDDataQualityMeasure, MeasureName
+		order by school_code, IDDataQualityMeasure, MeasureName;
+quit;
+
+***merge***;
+proc sort data=dqi_detail_level_school;
+	by school_code IDDataQualityMeasure MeasureName;
+run;
+
+proc sort data=merge_fix_b;
+	by school_code IDDataQualityMeasure MeasureName;
+run;
+
+data dqi_detail_level_school_b;
+	merge dqi_detail_level_school (in=master) merge_fix_b;
+	by school_code IDDataQualityMeasure MeasureName;
+
+	if master;
+
+	if count_remove=. then
+		do;
+			count_remove=0;
+		end;
+
+	schlid = school_code * 1;
+	drop school_code;
+	/*if school_code ='609733';*/
+run;
+
+proc sort data=dqi_detail_level_school_b; by schlid;
+proc sort data=schools_list_a; by schlid;
+
+data dqi_detail_lvl_network_school_b;
+   merge dqi_detail_level_school_b (in=in_dqi) schools_list_a; by schlid;
+
+       if in_dqi;
+	   
+run;
+
+proc sql;
+create table dqi_detail_lvl_network_b as
+(select network
+       ,IDDataQualityMeasure
+       ,MeasureName
+	   ,sum(Numerator) as Numerator
+	   ,sum(Denominator) as Denominator
+	   ,sum(count_remove) as count_remove
+  from dqi_detail_lvl_network_school_b
+  group by network
+       ,IDDataQualityMeasure
+       ,MeasureName
+);
+quit;
+run;
+
+data dqi_detail_lvl_network_c (keep=network school_short_name schlid school_status IDDataQualityMeasure MeasureName Numerator Denominator count_remove);
+  set dqi_detail_lvl_network_b;
+      schlid = 999999;
+	  LENGTH SCHOOL_SHORT_NAME $40 school_status $30;
+	  school_short_name = network;
+	  school_status = '';
+run;
+
+proc sql;
+create table dqi_detail_lvl_district_b as
+(select IDDataQualityMeasure
+       ,MeasureName
+	   ,sum(Numerator) as Numerator
+	   ,sum(Denominator) as Denominator
+	   ,sum(count_remove) as count_remove
+  from dqi_detail_lvl_network_school_b
+  group by IDDataQualityMeasure
+       ,MeasureName
+);
+quit;
+run;
+
+data dqi_detail_lvl_district_c (keep=network school_short_name schlid school_status IDDataQualityMeasure MeasureName Numerator Denominator count_remove);
+  set dqi_detail_lvl_district_b;
+      schlid = 999998;
+	  LENGTH Network $50 SCHOOL_SHORT_NAME $40 school_status $30;
+	  network = 'District Wide';       
+	  school_short_name = 'District Wide';
+	  school_status = '';
+run;
+
+
+proc append data=dqi_detail_lvl_district_c out=dqi_detail_lvl_network_school_b;
+proc append data=dqi_detail_lvl_network_c out=dqi_detail_lvl_network_school_b;
+
+proc sort data=dqi_detail_lvl_network_school_b; by network schlid school_short_name IDDataQualityMeasure;
+
+data dqi_detail_level_school_c (keep = network schlid school_short_name IDDataQualityMeasure MeasureName Numerator Denominator count_remove
+                                       MeasureName_Weight numerator_alt	denominator_alt	dqi_percent	dqi_weight);
+attrib network schlid school_short_name IDDataQualityMeasure MeasureName Numerator Denominator count_remove
+       MeasureName_Weight numerator_alt	denominator_alt	dqi_percent	dqi_weight label='';
+	set dqi_detail_lvl_network_school_b;
+	/*drop school_code;*/
+
+	if MeasureName="Unsubmitted Attendance" then
+		do;
+			MeasureName_Weight=40;
+		end;
+
+	if MeasureName="Invalid Enrollment Code" then
+		do;
+			MeasureName_Weight=6.7;
+		end;
+
+	if MeasureName="Invalid Leave Code" then
+		do;
+			MeasureName_Weight=6.7;
+		end;
+
+	if MeasureName="Missing Federal Race or Ethnicity" then
+		do;
+			MeasureName_Weight=6.7;
+		end;
+
+	if MeasureName="No Future Enrollment" then
+		do;
+			MeasureName_Weight=6.7;
+		end;
+
+	if MeasureName="Potential Drop Out" then
+		do;
+			MeasureName_Weight=6.7;
+		end;
+
+	if MeasureName="Unverified Out of District Transfers" then
+		do;
+			MeasureName_Weight=6.7;
+		end;
+
+	if MeasureName="Missing Phone Number" then
+		do;
+			MeasureName_Weight=3.75;
+		end;
+
+	if MeasureName="Missing Physical Address" then
+		do;
+			MeasureName_Weight=3.75;
+		end;
+
+	if MeasureName="Missing Physical and Mailing Address" then
+		do;
+			MeasureName_Weight=3.75;
+		end;
+
+	if MeasureName="Unverified Phone Numbers" then
+		do;
+			MeasureName_Weight=3.75;
+		end;
+
+	if MeasureName="Non Compliant Medical" then
+		do;
+			MeasureName_Weight=5;
+		end;
+
+	numerator_alt= numerator - count_remove;
+	denominator_alt=denominator - count_remove;
+	dqi_percent=(numerator_alt/denominator_alt)*100;
+	dqi_weight=MeasureName_Weight*dqi_percent/100;
+run;
+
+proc sql;
+	create table dqi_detail_level_school_d as
+		select network,schlid,school_short_name
+		/*
+			,100-sum(dqi_weight) as dqi_pct
+			,sum(dqi_weight) as dqi_low
+		*/
+			,round(100-sum(dqi_weight),.1) as dqi_pct
+			,round(sum(dqi_weight),.1) as dqi_low
+		from dqi_detail_level_school_c 
+		group by network,schlid,school_short_name;
+quit;
+
+data sy16_dqi;
+	set dqi_detail_level_school_d;
+run;
+
+proc sort data=schools_list_a;
+	by schlid;
+
+proc sort data=sy16_dqi;
+	by schlid;
+
+data sy16_dqi_final;
+	merge schools_list_a (in=in_sch_list) sy16_dqi (in=in_dqi);
+	by schlid;
+
+	/*
+	if not in_sch_list and in_dqi then do;
+		 auto_set_dqi_to_100 = 'Weird';
+	end;
+	*/
+	if in_sch_list and network NE '--' and not in_dqi then
+		do;
+			auto_set_dqi_to_100 = 'Yes';
+			dqi_pct = 100;
+		end;
+
+	if school_status = 'Closed' then
+		delete;
+
+	if dqi_pct=. then
+		delete;
+	drop school_status;
+run;
+
+proc freq data=sy16_dqi_final;
+	table auto_set_dqi_to_100;
+quit;
+
+proc sort data=sy16_dqi_final; by network schlid school_short_name;
+
+/* Create Sunmmaries */
+
+data dqi_detail_level_summary_a; 
+  set dqi_detail_level_school_c;
+
+    dqi_percent = dqi_percent / 100;
+    MeasureName_Weight = MeasureName_Weight / 100;
+    dqi_weight = dqi_weight / 100;
+    final_dqi = .;
+    /* drop school_code; */
+run;
+
+proc contents data=dqi_detail_level_summary_a varnum;
+
+data dqi_detail_level_summary_total_a;
+  set dqi_detail_level_school_d;
+
+  length MeasureName $100.;
+     IDDataQualityMeasure = 888888;	
+     MeasureName = '';
+     Numerator = .;
+     Denominator = .;	
+     count_remove = .;	
+
+     numerator_alt = .; 
+     denominator_alt = .;
+     dqi_percent =.;	
+     MeasureName_Weight	= 1;
+     dqi_weight = dqi_low/100;
+	 final_dqi = dqi_pct/100;
+
+	 drop dqi_pct dqi_low;
+run;
+
+proc append data=dqi_detail_level_summary_a out=dqi_detail_level_summary_total_a;
+
+proc sort data=dqi_detail_level_summary_total_a; by network schlid IDDataQualityMeasure;
+
+/* Create Rosters */
+
+data dqi_detail_level_roster_a; 
+  set dqi_detail_level;
+ 	if NOTDIGIT(substr(sid,1,8)) then student_id = 0; else student_id=substr(sid,1,8)*1;	
+run;
+
+proc sort data=dqi_detail_level_roster_a; by student_id;
+proc sort data=merge_fix_a; by student_id;
+
+data dqi_detail_level_roster_b (Keep= network schlid school_short_name IDDataQualityMeasure MeasureName Notes adjusted_dqi);
+   merge dqi_detail_level_roster_a merge_fix_a; by student_id;
+
+   if (student_homeless_indicator="YES" or student_pepk_june_enroll = "Yes" or student_man_fix = "Yes" or helpdesk = "Helpdesk")
+   then adjusted_dqi = "Not included"; else adjusted_dqi = "Included";
+
+   schlid = school_code * 1;
+run;
+
+/** Who gets a Summary and Roster **/
+
+proc sql;
+create table macro_calls as
+select distinct network,schlid,school_short_name,auto_set_dqi_to_100 from sy16_dqi_final;
+run;
+
+data macro_calls_reg_rosters_schools;
+   set macro_calls;
+      
+     if schlid NE 999999;
+     school_cy = translate(school_short_name," ",",'");
+
+     file "\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\macrocalls_DQI_Rosters_sch_001.sas";
+	
+     put '%sch(' schlid ',' school_cy ',' network ',' auto_set_dqi_to_100 ')';
+  
+run;
+
+data macro_calls_reg_rosters_network;
+   set macro_calls;
+      
+     if schlid = 999999 and network NE '--';
+     school_cy = translate(school_short_name," ",",'");
+
+     file "\\admin\deptdata\\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\macrocalls_DQI_Rosters_network_001.sas";
+     put '%network (' network ')';
+  
+run;
+
+proc sort data=sy16_dqi_final; by network schlid school_short_name auto_set_dqi_to_100;
+proc sort data=dqi_detail_level_roster_b; by schlid IDDataQualityMeasure adjusted_dqi;
+
+%macro sch(schlid_cy,school_cy,network,auto_set_dqi_to_100);
+
+%if "&auto_set_dqi_to_100" NE "Yes" %then %do;
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\school\xml\DQI_Rosters_2016_Roster_&schlid_cy..xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="School Summary");
+  
+  title1 "2016-2017 SQRP DQI Rosters - School Summary";
+  title2 "&school_cy";
+  title3 "&network";
+  
+  proc report data=dqi_detail_level_summary_total_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid = &schlid_cy and schlid not in (999999,999998);  
+
+/*
+    column ('Measure Information' MeasureName)	
+
+	        count_remove
+           ('Before School Review' Numerator	Denominator)	
+	       ('After School Review' numerator_alt denominator_alt)	
+	       ('DQI Percent' dqi_percent MeasureName_Weight dqi_weight final_dqi);
+	*/
+	column ('Measure Information' MeasureName numerator_alt denominator_alt dqi_percent MeasureName_Weight dqi_weight final_dqi);
+
+    define MeasureName / display 'DQI Measure Name';
+/*
+    define count_remove / display "Count of data quality*errors removed*from final calculation";
+	define Numerator / format=8. 'Numerator';	
+	define Denominator / format=8. 'Denominator';	
+*/
+	define Numerator_alt / format=8. 'Numerator';	
+	define Denominator_alt / format=8. 'Denominator';	
+	define dqi_percent / format=8.5 'Unweighted';
+    define MeasureName_Weight / format=8.5 'Measure Weight';
+	define dqi_weight / format=8.5 'Weighted';
+	define final_dqi / format=8.5 'Final*DQI';
+ run;
+
+ods tagsets.ExcelXP                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="School Roster");
+
+  title1 "2016-2017 SQRP DQI Rosters - School Roster";
+  title2 "&school_cy";
+  title3 "&network";
+  
+  proc report data=dqi_detail_level_roster_b nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid = &schlid_cy;  
+
+
+    column ('Measure Information' MeasureName Notes)	
+	       /* adjusted_dqi */
+	     ;
+	    
+
+    define MeasureName / display 'DQI Measure Name';
+    define Notes / display 'Note';
+   /*define adjusted_dqi / display "Is this DQI included in my school's Calculation?" ;*/
+ run;
+
+ods tagsets.excelxp close;
+%end;
+%mend sch;
+** %include "\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\macrocalls_DQI_Rosters_sch_001.sas";
+
+proc sort data=dqi_detail_level_roster_b; by network schlid IDDataQualityMeasure adjusted_dqi;
+
+/** NETWORK REPORTS **/
+%macro network(network);
+
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\network\xml\DQI_Rosters_2016_Roster_&network..xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Network Summary");
+  
+  title1 "2016-2017 SQRP DQI Rosters - Network Summary";
+  title2 "&network";
+  
+  proc report data=dqi_detail_level_summary_total_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid = 999999 and network = "&network";  
+
+/*
+    column ('Measure Information' MeasureName)	
+
+	        count_remove
+           ('Before School Review' Numerator	Denominator)	
+	       ('After School Review' numerator_alt denominator_alt)	
+	       ('DQI Percent' dqi_percent MeasureName_Weight dqi_weight final_dqi);
+	*/
+	column ('Measure Information' MeasureName numerator_alt denominator_alt dqi_percent MeasureName_Weight dqi_weight final_dqi);
+
+    define MeasureName / display 'DQI Measure Name';
+/*
+    define count_remove / display "Count of data quality*errors removed*from final calculation";
+	define Numerator / format=8. 'Numerator';	
+	define Denominator / format=8. 'Denominator';	
+*/
+	define Numerator_alt / format=8. 'Numerator';	
+	define Denominator_alt / format=8. 'Denominator';	
+	define dqi_percent / format=8.7 'Unweighted';
+    define MeasureName_Weight / format=8.7 'Measure Weight';
+	define dqi_weight / format=8.7 'Weighted';
+	define final_dqi / format=8.7 'Final*DQI';
+ run;
+
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="School Summary");
+  
+  title1 "2016-2017 SQRP DQI Rosters - School Summary";
+  title2 "&network";
+  
+  proc report data=dqi_detail_level_summary_total_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid NE 999999 and network = "&network";  
+
+/*
+    column ('Measure Information' MeasureName)	
+
+	        count_remove
+           ('Before School Review' Numerator	Denominator)	
+	       ('After School Review' numerator_alt denominator_alt)	
+	       ('DQI Percent' dqi_percent MeasureName_Weight dqi_weight final_dqi);
+	*/
+	column ('School Information' schlid school_short_name)
+           ('Measure Information' MeasureName numerator_alt denominator_alt dqi_percent MeasureName_Weight dqi_weight final_dqi);
+
+    define schlid / display 'School ID'; 
+    define school_short_name / display 'School Name'; 
+    define MeasureName / display 'DQI Measure Name';
+/*
+    define count_remove / display "Count of data quality*errors removed*from final calculation";
+	define Numerator / format=8. 'Numerator';	
+	define Denominator / format=8. 'Denominator';	
+*/
+	define Numerator_alt / format=8. 'Numerator';	
+	define Denominator_alt / format=8. 'Denominator';	
+	define dqi_percent / format=8.7 'Unweighted';
+    define MeasureName_Weight / format=8.7 'Measure Weight';
+	define dqi_weight / format=8.7 'Weighted';
+	define final_dqi / format=8.7 'Final*DQI';
+ run;
+
+
+ods tagsets.ExcelXP                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="School Roster");
+
+  title1 "2016-2017 SQRP DQI Rosters - School Roster";
+  title2 "&network";
+  
+  proc report data=dqi_detail_level_roster_b nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where network = "&network";  
+
+
+    column ('School Information' schlid school_short_name)
+           ('Measure Information' MeasureName Notes)	
+	       /* adjusted_dqi */
+	     ;
+
+    define schlid / display 'School ID'; 
+    define school_short_name / display 'School Name'; 
+    define MeasureName / display 'DQI Measure Name';
+    define Notes / display 'Note';
+   /*define adjusted_dqi / display "Is this DQI included in my school's Calculation?" ;*/
+ run;
+
+ods tagsets.excelxp close;
+%mend network;
+** %include "\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\macrocalls_DQI_Rosters_network_001.sas";
+
+
+/** District REPORTS **/
+
+ods tagsets.ExcelXP file="\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\DQI_Rosters_2016_Roster_District_Wide.xml" /* style=saswebprint */                                                           
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="District Summary");
+  
+  title1 "2016-2017 SQRP DQI Rosters - District Summary";
+  title2 "";
+  
+  proc report data=dqi_detail_level_summary_total_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid = 999998;  
+
+
+    column ('Measure Information' MeasureName)	
+	        count_remove
+           ('Before School Review' Numerator	Denominator)	
+	       ('After School Review' numerator_alt denominator_alt)	
+	       ('DQI Percent' dqi_percent MeasureName_Weight dqi_weight final_dqi);
+	**column ('Measure Information' MeasureName numerator_alt denominator_alt dqi_percent MeasureName_Weight dqi_weight final_dqi);
+
+    define MeasureName / display 'DQI Measure Name';
+    define count_remove / display "Count of data quality*errors removed*from final calculation";
+	define Numerator / format=8. 'Numerator';	
+	define Denominator / format=8. 'Denominator';	
+	define Numerator_alt / format=8. 'Numerator';	
+	define Denominator_alt / format=8. 'Denominator';	
+	define dqi_percent / format=8.7 'Unweighted';
+    define MeasureName_Weight / format=8.7 'Measure Weight';
+	define dqi_weight / format=8.7 'Weighted';
+	define final_dqi / format=8.7 'Final*DQI';
+ run;
+
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="Network Summary");
+  
+  title1 "2016-2017 SQRP DQI Rosters - Network Summary";
+  title2 "";
+  
+  proc report data=dqi_detail_level_summary_total_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid in (999999);  
+
+    column  network
+           ('Measure Information' MeasureName)	
+	        count_remove
+           ('Before School Review' Numerator	Denominator)	
+	       ('After School Review' numerator_alt denominator_alt)	
+	       ('DQI Percent' dqi_percent MeasureName_Weight dqi_weight final_dqi);
+
+    define network / display 'Network'; 
+    define MeasureName / display 'DQI Measure Name';
+    define count_remove / display "Count of data quality*errors removed*from final calculation";
+	define Numerator / format=8. 'Numerator';	
+	define Denominator / format=8. 'Denominator';	
+	define Numerator_alt / format=8. 'Numerator';	
+	define Denominator_alt / format=8. 'Denominator';	
+	define dqi_percent / format=8.7 'Unweighted';
+    define MeasureName_Weight / format=8.7 'Measure Weight';
+	define dqi_weight / format=8.7 'Weighted';
+	define final_dqi / format=8.7 'Final*DQI';
+ run;
+
+ods tagsets.ExcelXP 
+    options (Embedded_titles = 'yes' Orientation = 'landscape' /* Frozen_Headers='3' row_repeat = '1-3' AutoFilter='1-6' */
+             sheet_interval='none' sheet_name="School Summary");
+  
+  title1 "2016-2017 SQRP DQI Rosters - School Summary";
+  title2 "";
+  
+  proc report data=dqi_detail_level_summary_total_a nowd headskip split = '*'
+    style(header)=[foreground=black background=lightgrey borderwidth=4];
+    where schlid not in (999999,999998);  
+
+	column ('School Information' schlid school_short_name)
+           ('Measure Information' MeasureName)	
+            count_remove
+           ('Before School Review' Numerator	Denominator)	
+	       ('After School Review' numerator_alt denominator_alt)	
+	       ('DQI Percent' dqi_percent MeasureName_Weight dqi_weight final_dqi);
+	
+    define schlid / display 'School ID'; 
+    define school_short_name / display 'School Name'; 
+    define MeasureName / display 'DQI Measure Name';
+    define count_remove / display "Count of data quality*errors removed*from final calculation";
+	define Numerator / format=8. 'Numerator';	
+	define Denominator / format=8. 'Denominator';	
+	define Numerator_alt / format=8. 'Numerator';	
+	define Denominator_alt / format=8. 'Denominator';	
+	define dqi_percent / format=8.7 'Unweighted';
+    define MeasureName_Weight / format=8.7 'Measure Weight';
+	define dqi_weight / format=8.7 'Weighted';
+	define final_dqi / format=8.7 'Final*DQI';
+ run;
+
+ods tagsets.excelxp close;
+
+data create_dashboard_file (Keep = FILE_NUMBER FILE_EXTENSION FILE_NAME	FILE_NAME_TEMPLATE UNIT	SCHOOL_CODE	FILE_LOCATION TYPE FILE_ID 
+                                   TAB TAB_NAME	TAB_ORDER TAB_DESC GROUP GROUP_NAME	MATCHING_TEMPLATE LINK_NAME	DESCRIPTION	DATE_ADDED	
+                                   GROUP_ORDER FILE_ORDER FILE_TO_GROUP_MATCH PUBLISH);
+       attrib FILE_NUMBER FILE_EXTENSION FILE_NAME	FILE_NAME_TEMPLATE UNIT	SCHOOL_CODE	FILE_LOCATION TYPE FILE_ID 
+              TAB TAB_NAME TAB_ORDER TAB_DESC GROUP GROUP_NAME MATCHING_TEMPLATE LINK_NAME	DESCRIPTION	DATE_ADDED	
+              GROUP_ORDER FILE_ORDER FILE_TO_GROUP_MATCH PUBLISH label=''; 
+       set macro_calls_reg_rosters_schools;
+          
+	   school_id = schlid;
+
+       file_number = '';
+	   FILE_EXTENSION = 'xls';	
+       FILE_NAME = compress('DQI_Rosters_2016_Roster_' || compress(school_id) || '.xls');
+       FILE_NAME_TEMPLATE = 'N/A';
+       UNIT = 'N/A';	
+       SCHOOL_CODE = school_id;	
+       FILE_LOCATION = '\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI_Rosters\rosters\xls';
+       TYPE = 'N/A';		
+       FILE_ID = 'N/A';	
+       TAB = 'N/A';		
+       TAB_NAME	= 'ACCOUNTABILITY';
+       TAB_ORDER = 'N/A';			
+       TAB_DESC = 'These reports present data for school accountability, including the CPS Performance Policy and No Child Left Behind Adequate Yearly Progress.';	
+       GROUP = 'N/A';				
+       GROUP_NAME = 'SCHOOL QUALITY RATING POLICY 2016-2017';	
+       MATCHING_TEMPLATE = 'N/A';	
+       LINK_NAME = '2015-2016 DQI Roster';	
+       DESCRIPTION = 'The DQI roster contains a list of Data Quality Issues in the SY 2015-2016.';	
+       DATE_ADDED = '7/18/2016';
+       GROUP_ORDER = 'N/A';		
+       FILE_ORDER = 'N/A';		
+       FILE_TO_GROUP_MATCH = 'N/A';		
+       PUBLISH = 'N/A';	
+run;
+
+proc export data=create_dashboard_file
+   outfile="\\admin\deptdata\CEO\OA\PDP\SQRP\2016-2017\Rosters\DQI Rosters\Addition_School_Level_Reports_DQI_Rosters.csv"
+   replace
+   dbms=dlm; 
+   delimiter=',';
+run;
+
+
+
+
+%macro skip;
+	/* Per Ryan Clean up:
+	Manually remove errors specified in rows 3 and 7.
+	3) Jeff	8/25/2015 9:35:23	
+	  "610029	LOZANO"	
+	   Data Quality Index	
+	   Campos Maria Teresa	773-534-4750	773-534-4750	
+	   Yes	DQI phone number that has been corrected.	mtcampos@cps.edu	
+	   JB - emailed principal (9-1) to get ID if corrected before YEP. 
+	4    No response by 9-4 so marked resolved. 																							
+	*/
+	if (school_code = '610110' and IDDataQualityMeasure = 15 and SID = '50107275') 
+		or (school_code = '610246' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	5) Tilden High School is appealing the errors for two students who were incorrectly considered potential dropouts.
+
+	Student Gabriel Gagen (41277653) was withdrawn with a code 32 on 8/10/2014 to De La Salle High School.  
+	The transfer was verified on 3/24/2015.  Therefore, the SQRP roster is incorrectly showing that the withdraw code 31 was used.  
+	This student should not be considered a potential dropout.
+
+	Student Marlen Villa (50363162) was withdrawn with a code 33 on 8/10/2014 to Merrillville High School.  
+	The transfer was verified on 5/26/2015.  Therefore, the SQRP roster is incorrectly showing that the withdraw code 31 was used.  
+	This student should not be considered a potential dropout.
+	*/
+	if (school_code = '609735' and IDDataQualityMeasure = 15 and SID = '41277653')
+		or (school_code = '609735' and IDDataQualityMeasure = 15 and SID = '50363162') then
+		man_fix_applicable = 'Yes';
+
+	/*
+	"Student Richard Lopez 43900706 phone number has been updated in the system. 
+	This phone number was updated before the end of the school year. The new phone number in SIM for him is (773) 818-8855
+
+	Students Rubi Cirilo 42392650 and Kassandra Sandoval 44096366 had active physicals on file that did not expire until the end of the school year. 
+	The students are no longer Solorio/CPS students. "
+	*/
+	if (school_code = '610543' and IDDataQualityMeasure = 17 and SID = '43900706')
+		or (school_code = '610543' and IDDataQualityMeasure = 14 and SID = '42392650')
+		or (school_code = '610543' and IDDataQualityMeasure = 14 and SID = '44096366') then
+		man_fix_applicable = 'Yes';
+
+	/*
+	"Our unsubmitted attendance should be perfect. Prior to grades being due and before YEP, there was a mistake in Impact with one of our double period classes. A help ticket was created and the response back was that they were unable to resolve the issue before YEP so they reset our ""unsubmitted attendance"" back to zero"". This gave us the impression that we would be clear. Please see a copy of the email below:
+
+	From: ""Stewart, Anita"" <alstewart6@cps.edu>
+	Date: July 24, 2015 at 3:55:57 PM CDT
+	To: Migert Baburi <mbaburi@cps.edu>
+	Subject: Update for Incident IM259403
+
+	Mr. Baburi,
+
+	I am writing to provide you with an update for Incident IM259403.
+	You stated that you had an issue with having 202 Dashboard errors for Un-submitted Attendance when the attendance had been submitted. 
+	There were changes in your schedule which may have caused the data errors.
+	Your incident was submitted to the IMPACT Team an effort was made to investigate whether the two systems had synchronized your changes.  
+	However not all were able to investigate the issue before Year End Processing occurred. The DQI errors had been reset and un-submitted attendance was at 100% with no errors. 
+	Therefore, no resolution for your issue could be investigated thoroughly so I am closing your incident. Please feel free to contact us should you require additional support with this issue.
+
+	Regards,
+
+	Anita Stewart | Technology Stabilization Analyst"
+	*/
+	if (school_code = '609733' and IDDataQualityMeasure = 16) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	For CICS Northtown, there are several students that are listed as potential dropouts. 
+	Parents were called to confirm where the students are, the codes were corrected and transfers verified.  
+	This was done in June. However, the codes still showed 31 when the updates were made in June. 
+	I have screenshots,etc to show that the updates were completed.
+	*/
+	if (school_code = '400034' and IDDataQualityMeasure = 15) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 45557456-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A600 Student# 45557456 Vanessa Juarez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '45557456' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50028300-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A500 Student# 50028300 Eduardo Perez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50028300' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50101859-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A500 Student# 50101859 Luis Anguiano is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50101859' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50101947-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A400 Student# 50101947 Andrea Perez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50101947' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50243110-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A300 Student# 50243110 Noelani Lopez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50243110' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50243121-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A300 Student# 50243121 Kayleen Lopez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50243121' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50245362-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A100 Student# 50245362 Diego Perez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50245362' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50344023-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A100 Student# 50344023 Olivia Lopez is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153'  and SID = '50344023' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+	/*
+	Student: 50375248-This student was not showing as non-compliant on June 26 when final report was pulled. 
+	(Original CPS note: Homeroom: A000 Student# 50375248 Yandel Medina is not compliant for Immunizations: Medical Exam Missing)
+	*/
+	if (School_Code = '400153' and SID = '50375248' and IDDataQualityMeasure = 14) then
+		man_fix_applicable = 'Yes';
+
+%mend skip;
