@@ -1,0 +1,79 @@
+-- #1
+-- Will list:
+--  2 rec for John with VISIT_DATEs for both 
+--  1 rec for Luke with a VISIT_DATE
+--  1 rec for Mary with a VIST_DATE of NULL
+select pat.PAT_NAME, pat.GENDER, pat.DOB, vis.VISIT_DATE
+from Patients pat
+left join Visits vis on pat.PAT_ID = vis.PAT_ID
+
+-- #2
+select 
+     VISIT_DATE
+    ,PAT_ID
+    ,VISIT_DATE
+    ,case 
+        when month(VISIT_DATE) = 12 or month(VISIT_DATE) between 1 and 2 then 'Winter'
+        when month(VISIT_DATE) between 3 and 5 then 'Spring'
+        when month(VISIT_DATE) between 6 and 8 then 'Summer'
+        when month(VISIT_DATE) between 9 and 11 then 'Fall'
+    end as SEASON
+from Visits
+
+-- #3
+-- I can think of a few more elegant / efficient ways to maybe do this 
+-- but went with down and dirty CTE due to time constraint
+with dag1 as 
+(select pat.PAT_ID, pat.PAT_NAME, pat.GENDER, pat.DOB, 'DIAGNOSIS_1' as DIAGNOSIS_NO, DIAGNOSIS_1 as DIAGNOSIS
+from Patients pat 
+left join "Diagnosis Table" dag on pat.PAT_ID = dag.PAT_ID
+),
+dag2 as 
+(select pat.PAT_ID, pat.PAT_NAME, pat.GENDER, pat.DOB, 'DIAGNOSIS_2' as DIAGNOSIS_NO, DIAGNOSIS_2 as DIAGNOSIS
+from Patients pat 
+left join "Diagnosis Table" dag on pat.PAT_ID = dag.PAT_ID
+),
+dag as 
+(
+select PAT_ID, PAT_NAME, GENDER, DOB, DIAGNOSIS_NO, DIAGNOSIS
+from dag1
+
+append
+
+select PAT_ID, PAT_NAME, GENDER, DOB, DIAGNOSIS_NO, DIAGNOSIS
+from dag2
+)
+select distinct PAT_ID, PAT_NAME, GENDER, DOB, DIAGNOSIS_NO, DIAGNOSIS
+from dag
+order by PAT_ID, DIAGNOSIS_NO
+
+-- #4
+with dag as
+(select PAT_ID
+      ,DIAGNOSIS_ID
+      ,DIAGNOSIS
+      ,Visit_Date
+      ,row_number() over (partion by PAT_ID order by DIAGNOSIS_ID, Visit_Date) as row_number
+from Patients 
+)
+select PAT_ID
+      ,DIAGNOSIS_ID
+      ,DIAGNOSIS
+      ,Visit_Date
+      ,case 
+         when row_number = 1 then 'X'
+         else ' '
+      end as calculation
+from dag
+
+-- #5
+select pat.PAT_ID
+      , pat.PAT_NAME
+      , pat.GENDER
+      , pat.DOB
+      , vgt.DIAGNOSIS
+      ,row_number() over (partion by PAT_ID order by DIAGNOSIS, Visit_Date) as RANK
+from Patients pat
+left join "Visit Diagnosis Table" vgt on pat.PAT_ID = vgt.PAT_ID
+
+-- BONUS
