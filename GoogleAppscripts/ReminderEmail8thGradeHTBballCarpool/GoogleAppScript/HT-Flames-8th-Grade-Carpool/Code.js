@@ -7,7 +7,7 @@ const TEST_MODE = false;
 // When TEST_MODE is true, this date simulates "today".
 // The script will look for carpool events on the FOLLOWING day ("tomorrow").
 // Example: '2026-10-26' simulates today as Oct 26, so it sends reminders for Oct 27.
-const TEST_DATE = '2026-10-26'; 
+const TEST_DATE = '2026-11-21'; 
 
 
 /**
@@ -93,8 +93,14 @@ function runReminderLogicForDate(targetTomorrowDate) {
       const eventType      = row[3] ? String(row[3]).trim() : '';
       const sheetTitle     = row[4] ? String(row[4]).trim() : '';
       const dropOff        = row[5] ? String(row[5]).trim() : '';
-      const pickUp         = row[6] ? String(row[6]).trim() : '';
+      let pickUp           = row[6] ? String(row[6]).trim() : '';
       const address        = row[7] || '';
+
+      // Check if Drop Off (Col F / 6) and Pick Up (Col G / 7) are merged together
+      const isMerged = sheet.getRange(i + 1, 6).isPartOfMerge() && sheet.getRange(i + 1, 7).isPartOfMerge();
+      if (isMerged && !pickUp) {
+        pickUp = dropOff;
+      }
 
       const formattedStartTime = formatTime(startTimeRaw);
       const formattedEndTime   = formatTime(endTimeRaw);
@@ -108,6 +114,32 @@ function runReminderLogicForDate(targetTomorrowDate) {
         displayEvent = `${eventType} ${sheetTitle}`;
       } else {
         displayEvent = sheetTitle;
+      }
+
+      // Check if event is marked Cancelled (works for merged or separate cells)
+      const isCancelled = dropOff.toLowerCase().includes('cancel') || pickUp.toLowerCase().includes('cancel');
+
+      if (isCancelled) {
+        if (allEmailsList.length > 0) {
+          const cancelSubject = `CANCELLED: Tomorrow's ${displayEvent}`;
+          const cancelMessage = `Hello Parents,\n\n` +
+                                `Please note that tomorrow's basketball event has been CANCELLED:\n\n` +
+                                `• Event: ${displayEvent}\n` +
+                                `• Date: ${formattedDate}\n` +
+                                `• Original Time: ${formattedStartTime} - ${formattedEndTime}\n` +
+                                `THERE IS NO CARPOOL NEEDED.\n\n` +
+                                `Thank you!`;
+
+          const recipients = allEmailsList.join(',');
+          try {
+            MailApp.sendEmail(recipients, cancelSubject, cancelMessage);
+            Logger.log(`Sent cancellation notice to all families: ${recipients}`);
+          } catch (error) {
+            Logger.log(`Failed to send cancellation email: ${error.toString()}`);
+          }
+        }
+        // Stop processing this row so no driver or missing-driver reminders go out
+        continue;
       }
 
       // Check for missing drivers (where spot is empty and not 'N/A')
